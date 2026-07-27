@@ -33,6 +33,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ReadingProgressBar, BackToTopButton } from "@/components/shared/reading-progress";
 import { trackViewedPost } from "@/components/features/feed/recently-viewed";
+import { PollWidget } from "@/components/shared/poll-widget";
+import { ShareDialog } from "@/components/shared/share-dialog";
 
 export function PostDetailPage({ postId }: { postId: string }) {
   const setView = useUIStore((s) => s.setView);
@@ -41,6 +43,7 @@ export function PostDetailPage({ postId }: { postId: string }) {
   const [comments, setComments] = React.useState<Comment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [newComment, setNewComment] = React.useState("");
+  const [shareOpen, setShareOpen] = React.useState(false);
   const [sort, setSort] = React.useState<"top" | "new" | "controversial">("top");
 
   const loadPost = React.useCallback(async () => {
@@ -143,10 +146,7 @@ export function PostDetailPage({ postId }: { postId: string }) {
   };
 
   const handleShare = () => {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(`Nexus post: "${post.title}"`).catch(() => {});
-    }
-    toast.success("Link copied");
+    setShareOpen(true);
   };
 
   const submitComment = async () => {
@@ -295,6 +295,11 @@ export function PostDetailPage({ postId }: { postId: string }) {
           </div>
         )}
 
+        {/* Inline poll if exists */}
+        <div className="px-5 lg:px-6 pb-6">
+          <PollWidget postId={post.id} />
+        </div>
+
         <div className="flex items-center gap-1 px-3 py-2 border-t border-border/40">
           <div className="inline-flex items-center gap-0.5 p-0.5 rounded-xl bg-muted/40">
             <button onClick={() => handleVote(1)} className={`p-1.5 rounded-lg hover:bg-accent transition-colors ${hasUpvoted ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
@@ -383,6 +388,14 @@ export function PostDetailPage({ postId }: { postId: string }) {
           </div>
         )}
       </div>
+
+      {/* Share dialog */}
+      <ShareDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        postTitle={post.title}
+        postUrl={typeof window !== "undefined" ? `${window.location.origin}/?post=${post.id}` : undefined}
+      />
     </div>
   );
 }

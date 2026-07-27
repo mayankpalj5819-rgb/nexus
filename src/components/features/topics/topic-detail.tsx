@@ -13,6 +13,7 @@ import { formatNumber, timeAgo } from "@/lib/helpers";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { TopicPresence } from "@/components/features/topics/topic-presence";
+import { TopicLeaderboard } from "@/components/features/topics/topic-leaderboard";
 import { useTopicTheme } from "@/lib/use-topic-theme";
 import type { Profile } from "@/lib/data";
 
@@ -250,8 +251,11 @@ export function TopicDetailPage({ topicId }: { topicId: string }) {
         </div>
 
         <aside className="space-y-4">
+          {/* Weekly leaderboard */}
+          <TopicLeaderboard topicId={topic.id} />
+
           <div className="glass-card rounded-2xl p-4">
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Top contributors</div>
+            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Top contributors (all-time)</div>
             {contributors.length === 0 ? (
               <div className="text-sm text-muted-foreground py-2">No contributors yet.</div>
             ) : (

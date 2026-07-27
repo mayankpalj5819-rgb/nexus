@@ -16,6 +16,7 @@ import { motion } from "framer-motion";
 import { fetchTopics, createPost, updatePost, fetchPost, uploadPostImage, type Topic } from "@/lib/data";
 import { wordCount, readingTime } from "@/lib/helpers";
 import { PostTemplatePicker, MarkdownCheatSheet } from "@/components/features/editor/editor-extras";
+import { DraftAutosaveIndicator, WritingGoals } from "@/components/features/editor/draft-manager";
 import { ImagePlus, Loader2 } from "lucide-react";
 
 export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?: string }) {
@@ -264,6 +265,7 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
               <TabsTrigger value="preview">Preview</TabsTrigger>
             </TabsList>
             {mode === "write" && <MarkdownCheatSheet />}
+            {!postId && <DraftAutosaveIndicator status="saved" />}
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
@@ -289,6 +291,13 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Writing goals (only for new posts) */}
+      {!postId && (
+        <div className="mt-4">
+          <WritingGoals currentWords={wordCount(content)} />
+        </div>
+      )}
 
       <motion.div
         initial={{ opacity: 0, y: 8 }}
