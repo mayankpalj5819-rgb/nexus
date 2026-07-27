@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/query-provider";
+import { AuthProvider } from "@/lib/auth";
 import { NexusApp } from "@/components/nexus-app";
 
 const geistSans = Geist({
@@ -21,15 +22,7 @@ export const metadata: Metadata = {
   title: "Nexus — Follow Knowledge, Not People",
   description:
     "Nexus is a knowledge-first platform where people follow topics, not creators. Discover, share and discuss ideas across Science, Tech, Philosophy and more.",
-  keywords: [
-    "Nexus",
-    "Knowledge",
-    "Topics",
-    "Community",
-    "Discussion",
-    "Science",
-    "Learning",
-  ],
+  keywords: ["Nexus", "Knowledge", "Topics", "Community", "Discussion", "Science", "Learning"],
   authors: [{ name: "Nexus" }],
   manifest: "/manifest.webmanifest",
   appleWebApp: {
@@ -39,8 +32,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Nexus — Follow Knowledge, Not People",
-    description:
-      "A knowledge-first platform where people follow topics, not creators.",
+    description: "A knowledge-first platform where people follow topics, not creators.",
     siteName: "Nexus",
     type: "website",
   },
@@ -63,9 +55,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -81,9 +71,11 @@ export default function RootLayout({
           disableTransitionOnChange={false}
         >
           <QueryProvider>
-            <NexusApp>{children}</NexusApp>
-            <Toaster />
-            <SonnerToaster position="bottom-right" richColors closeButton />
+            <AuthProvider>
+              <NexusApp>{children}</NexusApp>
+              <Toaster />
+              <SonnerToaster position="bottom-right" richColors closeButton />
+            </AuthProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>

@@ -1,19 +1,51 @@
 "use client";
 
 import * as React from "react";
-import { useNexusStore, type Topic } from "@/lib/store";
+import { useUIStore } from "@/lib/ui-store";
+import { useAuth, supabase } from "@/lib/auth";
+import { fetchTopics, type Topic } from "@/lib/data";
 import { motion } from "framer-motion";
 import { Search, ChevronRight, TrendingUp, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/helpers";
 
 export function TopicsExplorer() {
-  const topics = useNexusStore((s) => s.topics);
-  const setView = useNexusStore((s) => s.setView);
+  const setView = useUIStore((s) => s.setView);
+  const [topics, setTopics] = React.useState<Topic[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [query, setQuery] = React.useState("");
 
-  const rootTopics = topics.filter((t) => !t.parentId);
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const data = await fetchTopics();
+      if (mounted) {
+        setTopics(data);
+        setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Fetch follower counts
+  React.useEffect(() => {
+    if (!supabase || topics.length === 0) return;
+    let mounted = true;
+    (async () => {
+      const ids = topics.map((t) => t.id);
+      const { data } = await supabase
+        .from("topic_followers")
+        .select("topic_id")
+        .in("topic_id", ids);
+      if (!mounted || !data) return;
+      const counts = new Map<string, number>();
+      data.forEach((r: { topic_id: string }) => counts.set(r.topic_id, (counts.get(r.topic_id) ?? 0) + 1));
+      setTopics((prev) => prev.map((t) => ({ ...t, follower_count: counts.get(t.id) ?? 0 })));
+    })();
+    return () => { mounted = false; };
+  }, [topics.length]);
+
+  const rootTopics = topics.filter((t) => !t.parent_id);
   const filtered = query
     ? topics.filter(
         (t) =>
@@ -22,9 +54,18 @@ export function TopicsExplorer() {
       )
     : [];
 
+  if (loading) {
+    return (
+      <div className="max-w-5xl mx-auto space-y-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="glass-card rounded-3xl h-44 animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl lg:text-3xl font-bold tracking-tight mb-2">Explore Topics</h1>
         <p className="text-sm text-muted-foreground">
@@ -32,7 +73,6 @@ export function TopicsExplorer() {
         </p>
       </div>
 
-      {/* Search */}
       <div className="relative mb-8">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
@@ -54,13 +94,18 @@ export function TopicsExplorer() {
             ))}
           </div>
         </div>
+      ) : topics.length === 0 ? (
+        <div className="glass-card rounded-3xl p-12 text-center">
+          <h3 className="font-semibold mb-2">No topics yet</h3>
+          <p className="text-sm text-muted-foreground">Topics will appear here once they&apos;re created.</p>
+        </div>
       ) : (
         <div className="space-y-8">
           {rootTopics.map((root) => {
-            const childTopics = topics.filter((t) => t.parentId === root.id);
+            const children = topics.filter((t) => t.parent_id === root.id);
             return (
               <div key={root.id}>
-                <TopicTreeRoot root={root} childTopics={childTopics} onOpen={(id) => setView({ name: "topic", topicId: id })} />
+                <TopicTreeRoot root={root} childTopics={children} allTopics={topics} onOpen={(id) => setView({ name: "topic", topicId: id })} />
               </div>
             );
           })}
@@ -73,17 +118,16 @@ export function TopicsExplorer() {
 function TopicTreeRoot({
   root,
   childTopics,
+  allTopics,
   onOpen,
 }: {
   root: Topic;
   childTopics: Topic[];
+  allTopics: Topic[];
   onOpen: (id: string) => void;
 }) {
-  const topics = useNexusStore((s) => s.topics);
-
   return (
     <div className="glass-card rounded-3xl overflow-hidden">
-      {/* Banner */}
       <button
         onClick={() => onOpen(root.id)}
         className="relative w-full h-32 lg:h-40 text-left group"
@@ -95,21 +139,19 @@ function TopicTreeRoot({
             <span className="text-4xl">{root.icon}</span>
             <div>
               <h2 className="text-2xl font-bold tracking-tight">{root.name}</h2>
-              <p className="text-sm text-white/80">{formatNumber(root.followers.length)} followers · {root.postCount} posts</p>
+              <p className="text-sm text-white/80">{formatNumber(root.follower_count ?? 0)} followers · {root.post_count} posts</p>
             </div>
           </div>
         </div>
       </button>
 
-      {/* Description */}
       <div className="p-5">
         <p className="text-sm text-muted-foreground leading-relaxed mb-4">{root.description}</p>
 
-        {/* Children */}
         {childTopics.length > 0 && (
           <div className="grid sm:grid-cols-2 gap-2">
             {childTopics.map((child) => {
-              const grandchildren = topics.filter((t) => t.parentId === child.id);
+              const grandchildren = allTopics.filter((t) => t.parent_id === child.id);
               return (
                 <button
                   key={child.id}
@@ -122,19 +164,15 @@ function TopicTreeRoot({
                       <span className="font-medium text-sm group-hover:text-primary transition-colors">{child.name}</span>
                       <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
                     </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                      {child.description}
-                    </p>
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{child.description}</p>
                     <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
-                        <Users className="w-3 h-3" /> {formatNumber(child.followers.length)}
+                        <Users className="w-3 h-3" /> {formatNumber(child.follower_count ?? 0)}
                       </span>
                       <span className="inline-flex items-center gap-1">
-                        <TrendingUp className="w-3 h-3" /> {child.postCount}
+                        <TrendingUp className="w-3 h-3" /> {child.post_count}
                       </span>
-                      {grandchildren.length > 0 && (
-                        <span>+{grandchildren.length} subtopics</span>
-                      )}
+                      {grandchildren.length > 0 && <span>+{grandchildren.length} subtopics</span>}
                     </div>
                   </div>
                 </button>
@@ -165,10 +203,10 @@ function TopicCard({ topic, index, onClick }: { topic: Topic; index: number; onC
         <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{topic.description}</p>
         <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
-            <Users className="w-3 h-3" /> {formatNumber(topic.followers.length)}
+            <Users className="w-3 h-3" /> {formatNumber(topic.follower_count ?? 0)}
           </span>
           <span className="inline-flex items-center gap-1">
-            <TrendingUp className="w-3 h-3" /> {topic.postCount}
+            <TrendingUp className="w-3 h-3" /> {topic.post_count}
           </span>
         </div>
       </div>

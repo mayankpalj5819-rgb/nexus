@@ -1,8 +1,9 @@
 "use client";
 
-import { useSignedInUser } from "@/lib/use-signed-in-user";
 import * as React from "react";
-import { useNexusStore, type Post, type User, type Comment } from "@/lib/store";
+import { useUIStore } from "@/lib/ui-store";
+import { useAuth, supabase } from "@/lib/auth";
+import { fetchPost, fetchComments, addComment, updateComment, deleteComment, voteOnComment, toggleBookmark, voteOnPost, removeVoteOnPost, deletePost, updatePost, type Post, type Comment } from "@/lib/data";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowBigUp, ArrowBigDown, Bookmark, Share2, Eye, Trash2, Edit, Flag, Reply, MoreHorizontal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { timeAgo, formatNumber, formatDate } from "@/lib/helpers";
+import { timeAgo, formatDate, formatNumber } from "@/lib/helpers";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -30,37 +31,46 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
 
 export function PostDetailPage({ postId }: { postId: string }) {
-  const getPost = useNexusStore((s) => s.getPost);
-  const getUser = useNexusStore((s) => s.getUser);
-  const getTopic = useNexusStore((s) => s.getTopic);
-  const upvotePost = useNexusStore((s) => s.upvotePost);
-  const downvotePost = useNexusStore((s) => s.downvotePost);
-  const bookmarkPost = useNexusStore((s) => s.bookmarkPost);
-  const deletePost = useNexusStore((s) => s.deletePost);
-  const reportTarget = useNexusStore((s) => s.reportTarget);
-  const getCommentsForPost = useNexusStore((s) => s.getCommentsForPost);
-  const addComment = useNexusStore((s) => s.addComment);
-  const setView = useNexusStore((s) => s.setView);
-  const session = useNexusStore((s) => s.session);
-  const signedInUser = useSignedInUser();
-
-  const post = getPost(postId);
+  const setView = useUIStore((s) => s.setView);
+  const { profile } = useAuth();
+  const [post, setPost] = React.useState<Post | null>(null);
+  const [comments, setComments] = React.useState<Comment[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [newComment, setNewComment] = React.useState("");
   const [sort, setSort] = React.useState<"top" | "new">("top");
-  const viewedRef = React.useRef<string | null>(null);
+
+  const loadPost = React.useCallback(async () => {
+    const p = await fetchPost(postId, profile?.id);
+    setPost(p);
+    setLoading(false);
+  }, [postId, profile?.id]);
+
+  const loadComments = React.useCallback(async () => {
+    const c = await fetchComments(postId, profile?.id);
+    setComments(c);
+  }, [postId, profile?.id]);
 
   React.useEffect(() => {
-    // increment view count (best-effort) — once per post visit
-    if (post && viewedRef.current !== post.id) {
-      viewedRef.current = post.id;
-      useNexusStore.setState((st) => ({
-        posts: st.posts.map((p) => p.id === post.id ? { ...p, views: p.views + 1 } : p),
-      }));
-    }
-  }, [post]);
+    let mounted = true;
+    setLoading(true);
+    (async () => {
+      await loadPost();
+      await loadComments();
+      if (!mounted) return;
+    })();
+    return () => { mounted = false; };
+  }, [loadPost, loadComments]);
+
+  if (loading) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-4">
+        <div className="glass-card rounded-3xl h-64 animate-pulse" />
+        <div className="glass-card rounded-2xl h-32 animate-pulse" />
+      </div>
+    );
+  }
 
   if (!post) {
     return (
@@ -77,30 +87,48 @@ export function PostDetailPage({ postId }: { postId: string }) {
       <div className="max-w-3xl mx-auto text-center py-20">
         <h2 className="text-xl font-semibold mb-2">Post removed</h2>
         <p className="text-sm text-muted-foreground mb-1">This post was removed by moderators.</p>
-        {post.removedReason && <p className="text-xs text-muted-foreground italic mb-4">Reason: {post.removedReason}</p>}
+        {post.removed_reason && <p className="text-xs text-muted-foreground italic mb-4">Reason: {post.removed_reason}</p>}
         <Button onClick={() => setView({ name: "home", feed: "trending" })}>Back to home</Button>
       </div>
     );
   }
 
-  const author = getUser(post.authorId);
-  const topics = post.topicIds.map((id) => getTopic(id)).filter(Boolean);
-  const score = post.upvotes.length - post.downvotes.length;
-  const hasUpvoted = session ? post.upvotes.includes(session.userId) : false;
-  const hasDownvoted = session ? post.downvotes.includes(session.userId) : false;
-  const hasBookmarked = session ? post.bookmarks.includes(session.userId) : false;
-  const isAuthor = signedInUser?.id === post.authorId;
+  const author = post.author;
+  const topics = post.topics ?? [];
+  const score = post.upvote_count - post.downvote_count;
+  const hasUpvoted = post.my_vote === 1;
+  const hasDownvoted = post.my_vote === -1;
+  const hasBookmarked = !!post.is_bookmarked;
+  const isAuthor = profile?.id === post.author_id;
 
-  const comments = getCommentsForPost(post.id).sort((a, b) => {
-    if (sort === "new") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    return (b.upvotes.length - b.downvotes.length) - (a.upvotes.length - a.downvotes.length);
-  });
+  const handleVote = async (value: 1 | -1) => {
+    if (!profile) { toast.error("Sign in to vote"); return; }
+    const prev = post;
+    const newValue = prev.my_vote === value ? 0 : value;
+    setPost({
+      ...prev,
+      my_vote: newValue as 1 | -1 | 0,
+      upvote_count: prev.upvote_count + (newValue === 1 ? 1 : prev.my_vote === 1 ? -1 : 0),
+      downvote_count: prev.downvote_count + (newValue === -1 ? 1 : prev.my_vote === -1 ? -1 : 0),
+    });
+    try {
+      if (newValue === 0) await removeVoteOnPost(post.id, profile.id);
+      else await voteOnPost(post.id, profile.id, value);
+    } catch (e) {
+      console.error(e);
+      setPost(prev);
+    }
+  };
 
-  const submitComment = () => {
-    if (!newComment.trim()) return;
-    addComment({ postId: post.id, parentId: null, content: newComment.trim() });
-    setNewComment("");
-    toast.success("Comment posted");
+  const handleBookmark = async () => {
+    if (!profile) { toast.error("Sign in to bookmark"); return; }
+    setPost({ ...post, is_bookmarked: !post.is_bookmarked });
+    try {
+      await toggleBookmark(post.id, profile.id);
+    } catch (e) {
+      console.error(e);
+      setPost(post);
+    }
   };
 
   const handleShare = () => {
@@ -110,43 +138,54 @@ export function PostDetailPage({ postId }: { postId: string }) {
     toast.success("Link copied");
   };
 
+  const submitComment = async () => {
+    if (!newComment.trim() || !profile) return;
+    const id = await addComment({ postId: post.id, parentId: null, content: newComment.trim() }, profile.id);
+    if (id) {
+      setNewComment("");
+      toast.success("Comment posted");
+      await loadComments();
+      await loadPost();
+    }
+  };
+
+  const sortedComments = [...comments].sort((a, b) => {
+    if (sort === "new") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    return (b.upvote_count - b.downvote_count) - (a.upvote_count - a.downvote_count);
+  });
+
   return (
     <div className="max-w-3xl mx-auto">
-      {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
         <button onClick={() => setView({ name: "home", feed: "trending" })} className="hover:text-foreground">Home</button>
         <span>/</span>
         {topics[0] && (
-          <>
-            <button onClick={() => setView({ name: "topic", topicId: topics[0].id })} className="hover:text-foreground inline-flex items-center gap-1">
-              <span>{topics[0].icon}</span> {topics[0].name}
-            </button>
-          </>
+          <button onClick={() => setView({ name: "topic", topicId: topics[0].id })} className="hover:text-foreground inline-flex items-center gap-1">
+            <span>{topics[0].icon}</span> {topics[0].name}
+          </button>
         )}
       </div>
 
-      {/* Post */}
       <article className="glass-card rounded-3xl overflow-hidden mb-6">
-        {/* Author header */}
         <div className="p-5 lg:p-6 pb-3">
           <div className="flex items-center gap-3">
             <button onClick={() => author && setView({ name: "profile", userId: author.id, tab: "posts" })}>
               <Avatar className="w-11 h-11 ring-2 ring-border/50">
-                <AvatarImage src={author?.avatar} alt={author?.name} />
-                <AvatarFallback>{author?.name[0]}</AvatarFallback>
+                {author?.avatar_url ? <AvatarImage src={author.avatar_url} alt={author?.name} /> : null}
+                <AvatarFallback>{author?.name?.[0]?.toUpperCase() ?? "?"}</AvatarFallback>
               </Avatar>
             </button>
             <div className="min-w-0 flex-1">
               <button onClick={() => author && setView({ name: "profile", userId: author.id, tab: "posts" })} className="text-left">
-                <div className="font-semibold leading-tight hover:text-primary transition-colors">{author?.name}</div>
+                <div className="font-semibold leading-tight hover:text-primary transition-colors">{author?.name ?? "Unknown"}</div>
                 <div className="text-xs text-muted-foreground leading-tight">
-                  @{author?.username} · {formatDate(post.createdAt)}
-                  {post.updatedAt && <span className="italic"> · edited</span>}
+                  @{author?.username ?? "unknown"} · {formatDate(post.created_at)}
+                  {post.updated_at && <span className="italic"> · edited</span>}
                 </div>
               </button>
             </div>
             <div className="flex items-center gap-1">
-              {author && signedInUser && signedInUser.id !== author.id && (
+              {author && profile && profile.id !== author.id && (
                 <FollowButton userId={author.id} />
               )}
               <DropdownMenu>
@@ -157,9 +196,12 @@ export function PostDetailPage({ postId }: { postId: string }) {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={handleShare}><Share2 className="w-4 h-4 mr-2" /> Share</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => {
+                  <DropdownMenuItem onSelect={async () => {
                     const reason = window.prompt("Report reason");
-                    if (reason) { reportTarget({ targetType: "post", targetId: post.id, reason }); toast.success("Reported"); }
+                    if (reason && profile && supabase) {
+                      await supabase.from("reports").insert({ reporter_id: profile.id, target_type: "post", target_id: post.id, reason });
+                      toast.success("Reported");
+                    }
                   }}>
                     <Flag className="w-4 h-4 mr-2" /> Report
                   </DropdownMenuItem>
@@ -183,7 +225,11 @@ export function PostDetailPage({ postId }: { postId: string }) {
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => { deletePost(post.id); toast.success("Post deleted"); setView({ name: "home", feed: "trending" }); }}
+                              onClick={async () => {
+                                await deletePost(post.id);
+                                toast.success("Post deleted");
+                                setView({ name: "home", feed: "trending" });
+                              }}
                               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >Delete</AlertDialogAction>
                           </AlertDialogFooter>
@@ -197,22 +243,20 @@ export function PostDetailPage({ postId }: { postId: string }) {
           </div>
         </div>
 
-        {/* Title */}
         <div className="px-5 lg:px-6 pb-3">
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight leading-tight">{post.title}</h1>
         </div>
 
-        {/* Topics + tags */}
         <div className="px-5 lg:px-6 pb-3 flex flex-wrap items-center gap-2">
           {topics.map((t) => (
             <button
-              key={t!.id}
-              onClick={() => setView({ name: "topic", topicId: t!.id })}
+              key={t.id}
+              onClick={() => setView({ name: "topic", topicId: t.id })}
               className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md hover:bg-accent transition-colors"
-              style={{ color: t!.color }}
+              style={{ color: t.color }}
             >
-              <span>{t!.icon}</span>
-              {t!.name}
+              <span>{t.icon}</span>
+              {t.name}
             </button>
           ))}
           {post.tags.map((tag) => (
@@ -220,12 +264,10 @@ export function PostDetailPage({ postId }: { postId: string }) {
           ))}
         </div>
 
-        {/* Content */}
         <div className="px-5 lg:px-6 pb-6 prose-nexus">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{post.content}</ReactMarkdown>
         </div>
 
-        {/* Images */}
         {post.images.length > 0 && (
           <div className="px-5 lg:px-6 pb-6 space-y-3">
             {post.images.map((img, i) => (
@@ -234,14 +276,13 @@ export function PostDetailPage({ postId }: { postId: string }) {
           </div>
         )}
 
-        {/* Action bar */}
         <div className="flex items-center gap-1 px-3 py-2 border-t border-border/40">
           <div className="inline-flex items-center gap-0.5 p-0.5 rounded-xl bg-muted/40">
-            <button onClick={() => upvotePost(post.id)} className={`p-1.5 rounded-lg hover:bg-accent transition-colors ${hasUpvoted ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+            <button onClick={() => handleVote(1)} className={`p-1.5 rounded-lg hover:bg-accent transition-colors ${hasUpvoted ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
               <ArrowBigUp className={`w-4 h-4 ${hasUpvoted ? "fill-current" : ""}`} />
             </button>
             <span className={`text-xs font-semibold min-w-[24px] text-center ${hasUpvoted ? "text-primary" : hasDownvoted ? "text-destructive" : "text-foreground"}`}>{formatNumber(score)}</span>
-            <button onClick={() => downvotePost(post.id)} className={`p-1.5 rounded-lg hover:bg-accent transition-colors ${hasDownvoted ? "text-destructive" : "text-muted-foreground hover:text-foreground"}`}>
+            <button onClick={() => handleVote(-1)} className={`p-1.5 rounded-lg hover:bg-accent transition-colors ${hasDownvoted ? "text-destructive" : "text-muted-foreground hover:text-foreground"}`}>
               <ArrowBigDown className={`w-4 h-4 ${hasDownvoted ? "fill-current" : ""}`} />
             </button>
           </div>
@@ -249,7 +290,7 @@ export function PostDetailPage({ postId }: { postId: string }) {
             <Eye className="w-3.5 h-3.5" /> {formatNumber(post.views)} views
           </span>
           <div className="flex-1" />
-          <Button variant="ghost" size="icon" onClick={() => { bookmarkPost(post.id); toast.success(hasBookmarked ? "Removed bookmark" : "Bookmarked"); }} className={`rounded-lg ${hasBookmarked ? "text-primary" : ""}`}>
+          <Button variant="ghost" size="icon" onClick={handleBookmark} className={`rounded-lg ${hasBookmarked ? "text-primary" : ""}`}>
             <Bookmark className={`w-4 h-4 ${hasBookmarked ? "fill-current" : ""}`} />
           </Button>
           <Button variant="ghost" size="icon" onClick={handleShare} className="rounded-lg">
@@ -258,28 +299,25 @@ export function PostDetailPage({ postId }: { postId: string }) {
         </div>
       </article>
 
-      {/* Comments */}
       <div className="space-y-4">
-        {/* Comment composer */}
         <div className="glass-card rounded-2xl p-4">
           <div className="flex items-start gap-3">
             <Avatar className="w-9 h-9 shrink-0">
-              <AvatarImage src={signedInUser?.avatar} alt={signedInUser?.name} />
-              <AvatarFallback>{signedInUser?.name[0] ?? "U"}</AvatarFallback>
+              {profile?.avatar_url ? <AvatarImage src={profile.avatar_url} alt={profile.name} /> : null}
+              <AvatarFallback>{profile?.name?.[0]?.toUpperCase() ?? "U"}</AvatarFallback>
             </Avatar>
             <div className="flex-1">
               <Textarea
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Add to the discussion…"
+                placeholder={profile ? "Add to the discussion…" : "Sign in to comment"}
                 rows={3}
                 className="rounded-xl resize-none bg-muted/40"
+                disabled={!profile}
               />
               <div className="flex items-center justify-between mt-2">
-                <span className="text-xs text-muted-foreground">
-                  Tip: use @username to mention people
-                </span>
-                <Button onClick={submitComment} disabled={!newComment.trim()} size="sm" className="rounded-lg">
+                <span className="text-xs text-muted-foreground">Tip: use @username to mention people</span>
+                <Button onClick={submitComment} disabled={!newComment.trim() || !profile} size="sm" className="rounded-lg">
                   <Reply className="w-3.5 h-3.5 mr-1" /> Comment
                 </Button>
               </div>
@@ -287,9 +325,8 @@ export function PostDetailPage({ postId }: { postId: string }) {
           </div>
         </div>
 
-        {/* Sort tabs */}
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{formatNumber(post.commentIds.length)} comments</span>
+          <span className="text-sm font-semibold">{formatNumber(post.comment_count)} comments</span>
           <div className="flex-1" />
           <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted/40">
             {(["top", "new"] as const).map((s) => (
@@ -306,8 +343,7 @@ export function PostDetailPage({ postId }: { postId: string }) {
           </div>
         </div>
 
-        {/* Comment list */}
-        {comments.length === 0 ? (
+        {sortedComments.length === 0 ? (
           <div className="glass-card rounded-2xl p-10 text-center">
             <p className="text-sm text-muted-foreground mb-2">No comments yet.</p>
             <p className="text-xs text-muted-foreground">Be the first to start the discussion.</p>
@@ -315,8 +351,14 @@ export function PostDetailPage({ postId }: { postId: string }) {
         ) : (
           <div className="space-y-3">
             <AnimatePresence>
-              {comments.map((c) => (
-                <CommentItem key={c.id} comment={c} postId={post.id} depth={0} />
+              {sortedComments.map((c) => (
+                <CommentItem
+                  key={c.id}
+                  comment={c}
+                  postId={post.id}
+                  depth={0}
+                  onReload={async () => { await loadComments(); await loadPost(); }}
+                />
               ))}
             </AnimatePresence>
           </div>
@@ -327,57 +369,97 @@ export function PostDetailPage({ postId }: { postId: string }) {
 }
 
 function FollowButton({ userId }: { userId: string }) {
-  const isFollowing = useNexusStore((s) => s.isFollowingUser(userId));
-  const followUser = useNexusStore((s) => s.followUser);
-  const unfollowUser = useNexusStore((s) => s.unfollowUser);
+  const { profile } = useAuth();
+  const [following, setFollowing] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!profile || !supabase) return;
+    let mounted = true;
+    (async () => {
+      const { data } = await supabase!
+        .from("user_followers")
+        .select("follower_id")
+        .eq("follower_id", profile.id)
+        .eq("followee_id", userId)
+        .maybeSingle();
+      if (mounted) setFollowing(!!data);
+    })();
+    return () => { mounted = false; };
+  }, [profile, userId]);
+
+  if (!profile || profile.id === userId) return null;
+
   return (
     <Button
-      variant={isFollowing ? "secondary" : "outline"}
+      variant={following ? "secondary" : "outline"}
       size="sm"
       className="rounded-lg text-xs"
-      onClick={() => {
-        if (isFollowing) { unfollowUser(userId); toast.success("Unfollowed"); }
-        else { followUser(userId); toast.success("Following"); }
+      onClick={async () => {
+        const { followUser, unfollowUser } = await import("@/lib/data");
+        if (following) {
+          await unfollowUser(profile.id, userId);
+          setFollowing(false);
+          toast.success("Unfollowed");
+        } else {
+          await followUser(profile.id, userId);
+          setFollowing(true);
+          toast.success("Following");
+        }
       }}
     >
-      {isFollowing ? "Following" : "Follow"}
+      {following ? "Following" : "Follow"}
     </Button>
   );
 }
 
-function CommentItem({ comment, postId, depth }: { comment: Comment; postId: string; depth: number }) {
-  const getUser = useNexusStore((s) => s.getUser);
-  const getChildComments = useNexusStore((s) => s.getChildComments);
-  const upvoteComment = useNexusStore((s) => s.upvoteComment);
-  const downvoteComment = useNexusStore((s) => s.downvoteComment);
-  const addComment = useNexusStore((s) => s.addComment);
-  const editComment = useNexusStore((s) => s.editComment);
-  const deleteComment = useNexusStore((s) => s.deleteComment);
-  const reportTarget = useNexusStore((s) => s.reportTarget);
-  const setView = useNexusStore((s) => s.setView);
-  const session = useNexusStore((s) => s.session);
-  const signedInUser = useSignedInUser();
-
-  const author = getUser(comment.authorId);
-  const children = getChildComments(comment.id);
+function CommentItem({ comment, postId, depth, onReload }: { comment: Comment; postId: string; depth: number; onReload: () => Promise<void> }) {
+  const { profile } = useAuth();
+  const [localComment, setLocalComment] = React.useState(comment);
   const [replyOpen, setReplyOpen] = React.useState(false);
   const [editOpen, setEditOpen] = React.useState(false);
   const [replyText, setReplyText] = React.useState("");
   const [editText, setEditText] = React.useState(comment.content);
 
-  if (!author) return null;
+  React.useEffect(() => setLocalComment(comment), [comment]);
 
-  const hasUpvoted = session ? comment.upvotes.includes(session.userId) : false;
-  const hasDownvoted = session ? comment.downvotes.includes(session.userId) : false;
-  const score = comment.upvotes.length - comment.downvotes.length;
-  const isAuthor = signedInUser?.id === comment.authorId;
+  const author = localComment.author;
+  const hasUpvoted = localComment.my_vote === 1;
+  const hasDownvoted = localComment.my_vote === -1;
+  const score = localComment.upvote_count - localComment.downvote_count;
+  const isAuthor = profile?.id === localComment.author_id;
 
-  const submitReply = () => {
-    if (!replyText.trim()) return;
-    addComment({ postId, parentId: comment.id, content: replyText.trim() });
-    setReplyText("");
-    setReplyOpen(false);
-    toast.success("Reply added");
+  const handleVote = async (value: 1 | -1) => {
+    if (!profile) { toast.error("Sign in to vote"); return; }
+    const prev = localComment;
+    const newValue = prev.my_vote === value ? 0 : value;
+    setLocalComment({
+      ...prev,
+      my_vote: newValue as 1 | -1 | 0,
+      upvote_count: prev.upvote_count + (newValue === 1 ? 1 : prev.my_vote === 1 ? -1 : 0),
+      downvote_count: prev.downvote_count + (newValue === -1 ? 1 : prev.my_vote === -1 ? -1 : 0),
+    });
+    try {
+      if (newValue === 0) {
+        const { supabase } = await import("@/lib/data");
+        await supabase!.from("comment_votes").delete().match({ comment_id: comment.id, user_id: profile.id });
+      } else {
+        await voteOnComment(comment.id, profile.id, value);
+      }
+    } catch (e) {
+      console.error(e);
+      setLocalComment(prev);
+    }
+  };
+
+  const submitReply = async () => {
+    if (!replyText.trim() || !profile) return;
+    const id = await addComment({ postId, parentId: comment.id, content: replyText.trim() }, profile.id);
+    if (id) {
+      setReplyText("");
+      setReplyOpen(false);
+      toast.success("Reply added");
+      await onReload();
+    }
   };
 
   return (
@@ -389,22 +471,22 @@ function CommentItem({ comment, postId, depth }: { comment: Comment; postId: str
       style={{ marginLeft: depth > 0 ? `${Math.min(depth, 4) * 16}px` : 0 }}
     >
       <div className="flex items-start gap-3">
-        <button onClick={() => setView({ name: "profile", userId: author.id, tab: "posts" })}>
-          <Avatar className="w-8 h-8">
-            <AvatarImage src={author.avatar} alt={author.name} />
-            <AvatarFallback>{author.name[0]}</AvatarFallback>
-          </Avatar>
-        </button>
+        <Avatar className="w-8 h-8">
+          {author?.avatar_url ? <AvatarImage src={author.avatar_url} alt={author?.name} /> : null}
+          <AvatarFallback>{author?.name?.[0]?.toUpperCase() ?? "?"}</AvatarFallback>
+        </Avatar>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <button onClick={() => setView({ name: "profile", userId: author.id, tab: "posts" })} className="font-medium text-sm hover:text-primary transition-colors">
-              {author.name}
+            <button
+              onClick={() => author && useUIStore.getState().setView({ name: "profile", userId: author.id, tab: "posts" })}
+              className="font-medium text-sm hover:text-primary transition-colors"
+            >
+              {author?.name ?? "Unknown"}
             </button>
-            <span className="text-xs text-muted-foreground">@{author.username}</span>
+            <span className="text-xs text-muted-foreground">@{author?.username ?? "unknown"}</span>
             <span className="text-xs text-muted-foreground">·</span>
-            <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
-            {comment.updatedAt && <span className="text-xs text-muted-foreground italic">· edited</span>}
-            {depth > 0 && <span className="text-xs text-muted-foreground/70">· reply</span>}
+            <span className="text-xs text-muted-foreground">{timeAgo(localComment.created_at)}</span>
+            {localComment.updated_at && <span className="text-xs text-muted-foreground italic">· edited</span>}
           </div>
 
           {editOpen ? (
@@ -416,24 +498,23 @@ function CommentItem({ comment, postId, depth }: { comment: Comment; postId: str
                 className="rounded-lg resize-none bg-muted/40"
               />
               <div className="flex gap-2">
-                <Button size="sm" onClick={() => { editComment(comment.id, editText); setEditOpen(false); toast.success("Edited"); }}>Save</Button>
-                <Button size="sm" variant="ghost" onClick={() => { setEditOpen(false); setEditText(comment.content); }}>Cancel</Button>
+                <Button size="sm" onClick={async () => { await updateComment(comment.id, editText); setEditOpen(false); toast.success("Edited"); }}>Save</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setEditOpen(false); setEditText(localComment.content); }}>Cancel</Button>
               </div>
             </div>
           ) : (
             <div className="text-sm leading-relaxed prose-nexus">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{comment.content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{localComment.content}</ReactMarkdown>
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex items-center gap-1 mt-2">
             <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-muted/40">
-              <button onClick={() => upvoteComment(comment.id)} className={`p-1 rounded hover:bg-accent transition-colors ${hasUpvoted ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+              <button onClick={() => handleVote(1)} className={`p-1 rounded hover:bg-accent transition-colors ${hasUpvoted ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
                 <ArrowBigUp className={`w-3.5 h-3.5 ${hasUpvoted ? "fill-current" : ""}`} />
               </button>
               <span className={`text-xs font-semibold min-w-[20px] text-center ${hasUpvoted ? "text-primary" : hasDownvoted ? "text-destructive" : "text-foreground"}`}>{score}</span>
-              <button onClick={() => downvoteComment(comment.id)} className={`p-1 rounded hover:bg-accent transition-colors ${hasDownvoted ? "text-destructive" : "text-muted-foreground hover:text-foreground"}`}>
+              <button onClick={() => handleVote(-1)} className={`p-1 rounded hover:bg-accent transition-colors ${hasDownvoted ? "text-destructive" : "text-muted-foreground hover:text-foreground"}`}>
                 <ArrowBigDown className={`w-3.5 h-3.5 ${hasDownvoted ? "fill-current" : ""}`} />
               </button>
             </div>
@@ -452,9 +533,12 @@ function CommentItem({ comment, postId, depth }: { comment: Comment; postId: str
                     <Edit className="w-3.5 h-3.5 mr-2" /> Edit
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onSelect={() => {
+                <DropdownMenuItem onSelect={async () => {
                   const reason = window.prompt("Report reason");
-                  if (reason) { reportTarget({ targetType: "comment", targetId: comment.id, reason }); toast.success("Reported"); }
+                  if (reason && profile && supabase) {
+                    await supabase.from("reports").insert({ reporter_id: profile.id, target_type: "comment", target_id: comment.id, reason });
+                    toast.success("Reported");
+                  }
                 }}>
                   <Flag className="w-3.5 h-3.5 mr-2" /> Report
                 </DropdownMenuItem>
@@ -475,7 +559,11 @@ function CommentItem({ comment, postId, depth }: { comment: Comment; postId: str
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
                           <AlertDialogAction
-                            onClick={() => { deleteComment(comment.id); toast.success("Deleted"); }}
+                            onClick={async () => {
+                              await deleteComment(comment.id);
+                              toast.success("Deleted");
+                              await onReload();
+                            }}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                           >Delete</AlertDialogAction>
                         </AlertDialogFooter>
@@ -487,17 +575,12 @@ function CommentItem({ comment, postId, depth }: { comment: Comment; postId: str
             </DropdownMenu>
           </div>
 
-          {/* Reply box */}
           {replyOpen && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              className="mt-3"
-            >
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-3">
               <Textarea
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
-                placeholder={`Reply to @${author.username}…`}
+                placeholder={`Reply to @${author?.username ?? "user"}…`}
                 rows={2}
                 className="rounded-lg resize-none bg-muted/40 text-sm"
                 autoFocus
@@ -509,11 +592,10 @@ function CommentItem({ comment, postId, depth }: { comment: Comment; postId: str
             </motion.div>
           )}
 
-          {/* Children */}
-          {children.length > 0 && (
+          {localComment.children && localComment.children.length > 0 && (
             <div className="mt-3 space-y-2 border-l-2 border-border/40 pl-3">
-              {children.map((child) => (
-                <CommentItem key={child.id} comment={child} postId={postId} depth={depth + 1} />
+              {localComment.children.map((child) => (
+                <CommentItem key={child.id} comment={child} postId={postId} depth={depth + 1} onReload={onReload} />
               ))}
             </div>
           )}
@@ -522,3 +604,6 @@ function CommentItem({ comment, postId, depth }: { comment: Comment; postId: str
     </motion.div>
   );
 }
+
+// Avoid unused import warning
+void updatePost;

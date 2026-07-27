@@ -1,24 +1,38 @@
 "use client";
 
-import { useSignedInUser } from "@/lib/use-signed-in-user";
 import * as React from "react";
-import { useNexusStore } from "@/lib/store";
+import { useUIStore } from "@/lib/ui-store";
+import { useAuth } from "@/lib/auth";
 import { Search, Bell, Bookmark, Plus, Moon, Sun, ArrowLeft } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { motion, AnimatePresence } from "framer-motion";
-import { toast } from "sonner";
+import { supabase } from "@/lib/auth";
 
 export function NexusTopbar({ onOpenCmd }: { onOpenCmd: () => void }) {
-  const view = useNexusStore((s) => s.view);
-  const setView = useNexusStore((s) => s.setView);
-  const goBack = useNexusStore((s) => s.goBack);
-  const signedInUser = useSignedInUser();
-  const unread = useNexusStore((s) => s.unreadNotificationCount());
+  const view = useUIStore((s) => s.view);
+  const setView = useUIStore((s) => s.setView);
+  const goBack = useUIStore((s) => s.goBack);
+  const { profile } = useAuth();
+  const [unread, setUnread] = React.useState(0);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
+
+  React.useEffect(() => {
+    if (!profile) return;
+    let mounted = true;
+    (async () => {
+      if (!supabase) return;
+      const { count } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", profile.id)
+        .eq("read", false);
+      if (mounted) setUnread(count ?? 0);
+    })();
+    return () => { mounted = false; };
+  }, [profile, view.name]);
 
   const title = (() => {
     switch (view.name) {
@@ -42,12 +56,7 @@ export function NexusTopbar({ onOpenCmd }: { onOpenCmd: () => void }) {
     <header className="sticky top-0 z-30 glass-strong border-b border-border/50">
       <div className="flex items-center gap-3 px-4 lg:px-8 h-16">
         {canGoBack && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={goBack}
-            className="rounded-lg shrink-0"
-          >
+          <Button variant="ghost" size="icon" onClick={goBack} className="rounded-lg shrink-0">
             <ArrowLeft className="w-4 h-4" />
           </Button>
         )}
@@ -56,7 +65,6 @@ export function NexusTopbar({ onOpenCmd }: { onOpenCmd: () => void }) {
 
         <div className="flex-1" />
 
-        {/* Search trigger */}
         <button
           onClick={() => setView({ name: "search" })}
           className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/60 hover:bg-muted transition-colors text-sm text-muted-foreground w-64 lg:w-72"
@@ -66,7 +74,6 @@ export function NexusTopbar({ onOpenCmd }: { onOpenCmd: () => void }) {
           <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-background/60 border border-border/60">⌘K</kbd>
         </button>
 
-        {/* Theme toggle */}
         <Button
           variant="ghost"
           size="icon"
@@ -77,7 +84,6 @@ export function NexusTopbar({ onOpenCmd }: { onOpenCmd: () => void }) {
           {mounted && theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </Button>
 
-        {/* Quick actions */}
         <Button
           variant="ghost"
           size="icon"
@@ -92,6 +98,7 @@ export function NexusTopbar({ onOpenCmd }: { onOpenCmd: () => void }) {
             </span>
           )}
         </Button>
+
         <Button
           variant="ghost"
           size="icon"
@@ -111,14 +118,14 @@ export function NexusTopbar({ onOpenCmd }: { onOpenCmd: () => void }) {
           New
         </Button>
 
-        {signedInUser && (
+        {profile && (
           <button
-            onClick={() => setView({ name: "profile", userId: signedInUser.id, tab: "posts" })}
+            onClick={() => setView({ name: "profile", userId: profile.id, tab: "posts" })}
             className="ml-1 shrink-0"
           >
             <Avatar className="w-9 h-9 ring-2 ring-transparent hover:ring-primary/50 transition-all">
-              <AvatarImage src={signedInUser.avatar} alt={signedInUser.name} />
-              <AvatarFallback>{signedInUser.name[0]}</AvatarFallback>
+              {profile.avatar_url ? <AvatarImage src={profile.avatar_url} alt={profile.name} /> : null}
+              <AvatarFallback>{profile.name[0]?.toUpperCase()}</AvatarFallback>
             </Avatar>
           </button>
         )}

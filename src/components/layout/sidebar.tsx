@@ -1,9 +1,9 @@
 "use client";
 
-import { useSignedInUser } from "@/lib/use-signed-in-user";
 import * as React from "react";
-import Link from "next/link";
-import { useNexusStore, type View } from "@/lib/store";
+import { useUIStore, type View } from "@/lib/ui-store";
+import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import {
@@ -15,9 +15,7 @@ import {
   Plus,
   Shield,
   Settings,
-  User as UserIcon,
   LogOut,
-  Sparkles,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -28,13 +26,37 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { NexusLogo } from "@/components/shared/nexus-logo";
+import type { Topic } from "@/lib/data";
 
 export function NexusSidebar() {
-  const view = useNexusStore((s) => s.view);
-  const setView = useNexusStore((s) => s.setView);
-  const signedInUser = useSignedInUser();
-  const unread = useNexusStore((s) => s.unreadNotificationCount());
-  const signOut = useNexusStore((s) => s.signOut);
+  const view = useUIStore((s) => s.view);
+  const setView = useUIStore((s) => s.setView);
+  const { profile, signOut } = useAuth();
+  const [unread, setUnread] = React.useState(0);
+  const [followedTopics, setFollowedTopics] = React.useState<Topic[]>([]);
+
+  // Fetch unread count + followed topics
+  React.useEffect(() => {
+    if (!profile) return;
+    let mounted = true;
+    (async () => {
+      if (!supabase) return;
+      const { count } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", profile.id)
+        .eq("read", false);
+      if (mounted) setUnread(count ?? 0);
+
+      const { data: tf } = await supabase
+        .from("topic_followers")
+        .select("topic_id, topics!inner(*)")
+        .eq("user_id", profile.id);
+      if (mounted) setFollowedTopics((tf ?? []).map((r: { topics: Topic }) => r.topics));
+    })();
+    return () => { mounted = false; };
+  }, [profile]);
 
   const isActive = (name: View["name"]) => view.name === name;
 
@@ -46,7 +68,7 @@ export function NexusSidebar() {
     { name: "bookmarks", label: "Bookmarks", icon: <Bookmark className="w-[18px] h-[18px]" />, view: { name: "bookmarks" } },
   ];
 
-  if (signedInUser?.role === "admin" || signedInUser?.role === "moderator") {
+  if (profile?.role === "admin" || profile?.role === "moderator") {
     items.push({
       name: "admin",
       label: "Admin",
@@ -57,7 +79,6 @@ export function NexusSidebar() {
 
   return (
     <aside className="hidden lg:flex w-64 shrink-0 flex-col p-4 sticky top-0 self-start max-h-screen overflow-y-auto no-scrollbar">
-      {/* Logo */}
       <button
         onClick={() => setView({ name: "home", feed: "trending" })}
         className="flex items-center gap-2 px-2 py-3 mb-2"
@@ -66,7 +87,6 @@ export function NexusSidebar() {
         <span className="text-lg font-semibold tracking-tight">Nexus</span>
       </button>
 
-      {/* New post */}
       <Button
         onClick={() => setView({ name: "editor" })}
         className="mb-4 rounded-xl h-11 gap-2 shadow-glow"
@@ -79,7 +99,6 @@ export function NexusSidebar() {
         </kbd>
       </Button>
 
-      {/* Nav */}
       <nav className="flex flex-col gap-0.5">
         {items.map((item) => (
           <NavButton
@@ -93,34 +112,44 @@ export function NexusSidebar() {
         ))}
       </nav>
 
-      {/* Following topics */}
-      {signedInUser && signedInUser.followingTopics.length > 0 && (
+      {followedTopics.length > 0 && (
         <div className="mt-6">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
             Following
           </div>
-          <FollowingTopics />
+          <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto no-scrollbar">
+            {followedTopics.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setView({ name: "topic", topicId: t.id })}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm hover:bg-accent/50 transition-colors text-left"
+              >
+                <span className="text-base shrink-0">{t.icon}</span>
+                <span className="truncate flex-1">{t.name}</span>
+                <span className="text-xs text-muted-foreground">{t.post_count}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       <div className="flex-1" />
 
-      {/* User card */}
-      {signedInUser && (
+      {profile && (
         <div className="mt-4">
           <div className="glass-card rounded-xl p-2 flex items-center gap-2.5">
             <button
-              onClick={() => setView({ name: "profile", userId: signedInUser.id, tab: "posts" })}
+              onClick={() => setView({ name: "profile", userId: profile.id, tab: "posts" })}
               className="flex items-center gap-2.5 flex-1 min-w-0 hover:opacity-80 transition-opacity"
             >
               <Avatar className="w-9 h-9 shrink-0">
-                <AvatarImage src={signedInUser.avatar} alt={signedInUser.name} />
-                <AvatarFallback>{signedInUser.name[0]}</AvatarFallback>
+                {profile.avatar_url ? <AvatarImage src={profile.avatar_url} alt={profile.name} /> : null}
+                <AvatarFallback>{profile.name[0]?.toUpperCase()}</AvatarFallback>
               </Avatar>
               <div className="min-w-0 text-left">
-                <div className="text-sm font-medium truncate">{signedInUser.name}</div>
+                <div className="text-sm font-medium truncate">{profile.name}</div>
                 <div className="text-xs text-muted-foreground truncate">
-                  {signedInUser.reputation.toLocaleString()} rep
+                  {profile.reputation.toLocaleString()} rep
                 </div>
               </div>
             </button>
@@ -195,50 +224,5 @@ function NavButton({
         </span>
       ) : null}
     </button>
-  );
-}
-
-function FollowingTopics() {
-  const topics = useNexusStore((s) => s.topics);
-  const signedInUser = useSignedInUser();
-  const setView = useNexusStore((s) => s.setView);
-
-  if (!signedInUser) return null;
-
-  const followed = topics.filter((t) => signedInUser.followingTopics.includes(t.id));
-
-  return (
-    <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto no-scrollbar">
-      {followed.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => setView({ name: "topic", topicId: t.id })}
-          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm hover:bg-accent/50 transition-colors text-left"
-        >
-          <span className="text-base shrink-0">{t.icon}</span>
-          <span className="truncate flex-1">{t.name}</span>
-          <span className="text-xs text-muted-foreground">
-            {t.postCount}
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function NexusLogo({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-      <defs>
-        <linearGradient id="nexusGrad3" x1="0" y1="0" x2="64" y2="64">
-          <stop offset="0%" stopColor="oklch(0.75 0.22 280)" />
-          <stop offset="50%" stopColor="oklch(0.7 0.25 304)" />
-          <stop offset="100%" stopColor="oklch(0.72 0.18 162)" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="16" fill="url(#nexusGrad3)" />
-      <path d="M20 44V20h4l16 16V20h4v24h-4L24 28v16h-4z" fill="white" fillOpacity="0.95" />
-      <circle cx="32" cy="32" r="3" fill="white" />
-    </svg>
   );
 }

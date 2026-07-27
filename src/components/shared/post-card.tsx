@@ -1,8 +1,10 @@
 "use client";
 
-import { useSignedInUser } from "@/lib/use-signed-in-user";
 import * as React from "react";
-import { useNexusStore, type Post, type User, type Topic } from "@/lib/store";
+import { useUIStore } from "@/lib/ui-store";
+import { useAuth, supabase } from "@/lib/auth";
+import type { Post, Profile, Topic } from "@/lib/data";
+import { toggleBookmark, voteOnPost, removeVoteOnPost, deletePost } from "@/lib/data";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowBigUp, ArrowBigDown, MessageSquare, Bookmark, Share2, MoreHorizontal, Flag, Trash2, Eye } from "lucide-react";
 import { motion } from "framer-motion";
@@ -31,56 +33,98 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
 export function PostCard({ post, compact = false }: { post: Post; compact?: boolean }) {
-  const setView = useNexusStore((s) => s.setView);
-  const getUser = useNexusStore((s) => s.getUser);
-  const getTopic = useNexusStore((s) => s.getTopic);
-  const upvotePost = useNexusStore((s) => s.upvotePost);
-  const downvotePost = useNexusStore((s) => s.downvotePost);
-  const bookmarkPost = useNexusStore((s) => s.bookmarkPost);
-  const deletePost = useNexusStore((s) => s.deletePost);
-  const reportTarget = useNexusStore((s) => s.reportTarget);
-  const signedInUser = useSignedInUser();
-
-  const author = getUser(post.authorId);
-  const topics = post.topicIds.map((id) => getTopic(id)).filter(Boolean) as Topic[];
-  const session = useNexusStore((s) => s.session);
-
+  const setView = useUIStore((s) => s.setView);
+  const { profile } = useAuth();
+  const [localPost, setLocalPost] = React.useState(post);
   const [reportOpen, setReportOpen] = React.useState(false);
   const [reportReason, setReportReason] = React.useState("");
 
-  if (post.removed) {
+  React.useEffect(() => setLocalPost(post), [post]);
+
+  if (localPost.removed) {
     return (
       <div className="glass-card rounded-2xl p-5 text-sm text-muted-foreground italic">
         This post has been removed by moderators.
-        {post.removedReason && <span className="block mt-1 not-italic">Reason: {post.removedReason}</span>}
+        {localPost.removed_reason && <span className="block mt-1 not-italic">Reason: {localPost.removed_reason}</span>}
       </div>
     );
   }
 
-  if (!author) return null;
+  const author = localPost.author;
+  const topics = localPost.topics ?? [];
+  const score = localPost.upvote_count - localPost.downvote_count;
+  const hasUpvoted = localPost.my_vote === 1;
+  const hasDownvoted = localPost.my_vote === -1;
+  const hasBookmarked = !!localPost.is_bookmarked;
+  const isAuthor = profile?.id === localPost.author_id;
 
-  const score = post.upvotes.length - post.downvotes.length;
-  const hasUpvoted = session ? post.upvotes.includes(session.userId) : false;
-  const hasDownvoted = session ? post.downvotes.includes(session.userId) : false;
-  const hasBookmarked = session ? post.bookmarks.includes(session.userId) : false;
-  const isAuthor = signedInUser?.id === post.authorId;
+  const handleVote = async (value: 1 | -1) => {
+    if (!profile) { toast.error("Sign in to vote"); return; }
+    // Optimistic update
+    const prev = localPost;
+    const newValue = prev.my_vote === value ? 0 : value;
+    setLocalPost({
+      ...prev,
+      my_vote: newValue as 1 | -1 | 0,
+      upvote_count: prev.upvote_count + (newValue === 1 ? 1 : prev.my_vote === 1 ? -1 : 0),
+      downvote_count: prev.downvote_count + (newValue === -1 ? 1 : prev.my_vote === -1 ? -1 : 0),
+    });
+    try {
+      if (newValue === 0) {
+        await removeVoteOnPost(localPost.id, profile.id);
+      } else {
+        await voteOnPost(localPost.id, profile.id, value);
+      }
+    } catch (e) {
+      console.error(e);
+      setLocalPost(prev);
+      toast.error("Vote failed");
+    }
+  };
+
+  const handleBookmark = async () => {
+    if (!profile) { toast.error("Sign in to bookmark"); return; }
+    const prev = localPost;
+    setLocalPost({ ...prev, is_bookmarked: !prev.is_bookmarked });
+    try {
+      const bookmarked = await toggleBookmark(localPost.id, profile.id);
+      toast.success(bookmarked ? "Bookmarked" : "Removed bookmark");
+    } catch (e) {
+      console.error(e);
+      setLocalPost(prev);
+    }
+  };
 
   const handleShare = () => {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(`Nexus post: "${post.title}"`).catch(() => {});
+      navigator.clipboard.writeText(`Nexus post: "${localPost.title}"`).catch(() => {});
     }
     toast.success("Link copied to clipboard");
   };
 
-  const submitReport = () => {
-    if (!reportReason.trim()) {
-      toast.error("Please provide a reason");
-      return;
-    }
-    reportTarget({ targetType: "post", targetId: post.id, reason: reportReason });
+  const submitReport = async () => {
+    if (!reportReason.trim()) { toast.error("Please provide a reason"); return; }
+    if (!profile || !supabase) return;
+    await supabase.from("reports").insert({
+      reporter_id: profile.id,
+      target_type: "post",
+      target_id: localPost.id,
+      reason: reportReason,
+    });
     toast.success("Report submitted. Thank you.");
     setReportOpen(false);
     setReportReason("");
+  };
+
+  const handleDelete = async () => {
+    try {
+      await deletePost(localPost.id);
+      toast.success("Post deleted");
+      setView({ name: "home", feed: "trending" });
+    } catch (e) {
+      console.error(e);
+      toast.error("Delete failed");
+    }
   };
 
   return (
@@ -89,7 +133,6 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
       className="group glass-card rounded-2xl overflow-hidden"
     >
-      {/* Topic strip */}
       {topics.length > 0 && (
         <div className="flex items-center gap-1.5 px-5 pt-4 pb-1 flex-wrap">
           {topics.slice(0, 3).map((t) => (
@@ -108,24 +151,26 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
 
       <div
         className="px-5 pb-4 pt-3 cursor-pointer"
-        onClick={() => setView({ name: "post", postId: post.id })}
+        onClick={() => setView({ name: "post", postId: localPost.id })}
       >
-        {/* Author row */}
         <div className="flex items-center gap-2.5 mb-3">
           <button
-            onClick={(e) => { e.stopPropagation(); setView({ name: "profile", userId: author.id, tab: "posts" }); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (author) setView({ name: "profile", userId: author.id, tab: "posts" });
+            }}
             className="flex items-center gap-2.5 group/author min-w-0"
           >
             <Avatar className="w-7 h-7 ring-1 ring-border/50">
-              <AvatarImage src={author.avatar} alt={author.name} />
-              <AvatarFallback className="text-xs">{author.name[0]}</AvatarFallback>
+              {author?.avatar_url ? <AvatarImage src={author.avatar_url} alt={author.name} /> : null}
+              <AvatarFallback className="text-xs">{author?.name?.[0]?.toUpperCase() ?? "?"}</AvatarFallback>
             </Avatar>
             <div className="min-w-0">
               <div className="text-sm font-medium leading-tight group-hover/author:text-primary transition-colors truncate">
-                {author.name}
+                {author?.name ?? "Unknown"}
               </div>
               <div className="text-xs text-muted-foreground leading-tight">
-                @{author.username} · {timeAgo(post.createdAt)}
+                @{author?.username ?? "unknown"} · {timeAgo(localPost.created_at)}
               </div>
             </div>
           </button>
@@ -168,10 +213,7 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => { deletePost(post.id); toast.success("Post deleted"); }}
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
+                        <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                           Delete
                         </AlertDialogAction>
                       </AlertDialogFooter>
@@ -183,22 +225,19 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
           </DropdownMenu>
         </div>
 
-        {/* Title */}
         <h2 className="text-lg lg:text-xl font-semibold tracking-tight leading-snug mb-1.5 group-hover:text-primary transition-colors">
-          {post.title}
+          {localPost.title}
         </h2>
 
-        {/* Preview */}
         {!compact && (
           <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2 mb-3">
-            {post.preview}
+            {localPost.preview}
           </p>
         )}
 
-        {/* Images */}
-        {post.images.length > 0 && (
+        {localPost.images.length > 0 && (
           <div className="grid grid-cols-2 gap-2 mb-3">
-            {post.images.slice(0, 2).map((img, i) => (
+            {localPost.images.slice(0, 2).map((img, i) => (
               <div key={i} className="aspect-video rounded-xl overflow-hidden bg-muted">
                 <img src={img.url} alt={img.alt ?? ""} className="w-full h-full object-cover" />
               </div>
@@ -206,10 +245,9 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
           </div>
         )}
 
-        {/* Tags */}
-        {post.tags.length > 0 && (
+        {localPost.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
-            {post.tags.slice(0, 4).map((tag) => (
+            {localPost.tags.slice(0, 4).map((tag) => (
               <span key={tag} className="text-xs px-2 py-0.5 rounded-md bg-muted/60 text-muted-foreground">
                 #{tag}
               </span>
@@ -218,20 +256,19 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
         )}
       </div>
 
-      {/* Action bar */}
       <div className="flex items-center gap-1 px-3 py-2 border-t border-border/40">
         <VoteButton
           score={score}
           hasUpvoted={hasUpvoted}
           hasDownvoted={hasDownvoted}
-          onUpvote={() => { upvotePost(post.id); }}
-          onDownvote={() => { downvotePost(post.id); }}
+          onUpvote={() => handleVote(1)}
+          onDownvote={() => handleVote(-1)}
         />
 
         <ActionButton
           icon={<MessageSquare className="w-4 h-4" />}
-          label={formatNumber(post.commentIds.length)}
-          onClick={() => setView({ name: "post", postId: post.id })}
+          label={formatNumber(localPost.comment_count)}
+          onClick={() => setView({ name: "post", postId: localPost.id })}
           hoverLabel="Comments"
         />
 
@@ -239,16 +276,13 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
 
         <span className="hidden sm:inline-flex items-center gap-1 text-xs text-muted-foreground px-2">
           <Eye className="w-3.5 h-3.5" />
-          {formatNumber(post.views)}
+          {formatNumber(localPost.views)}
         </span>
 
         <ActionButton
           icon={<Bookmark className={hasBookmarked ? "w-4 h-4 fill-current" : "w-4 h-4"} />}
           active={hasBookmarked}
-          onClick={() => {
-            bookmarkPost(post.id);
-            toast.success(hasBookmarked ? "Removed bookmark" : "Bookmarked");
-          }}
+          onClick={handleBookmark}
           hoverLabel="Bookmark"
         />
 
@@ -259,7 +293,6 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
         />
       </div>
 
-      {/* Report dialog */}
       <AlertDialog open={reportOpen} onOpenChange={setReportOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -352,3 +385,6 @@ function ActionButton({
     </button>
   );
 }
+
+// Unused imports cleanup — these types are used via inference
+void ({} as Profile | Topic);

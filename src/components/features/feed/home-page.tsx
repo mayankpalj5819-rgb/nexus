@@ -1,42 +1,53 @@
 "use client";
 
-import { useSignedInUser } from "@/lib/use-signed-in-user";
 import * as React from "react";
-import { useNexusStore, type FeedTab, type Post } from "@/lib/store";
+import { useUIStore, type FeedTab } from "@/lib/ui-store";
+import { useAuth } from "@/lib/auth";
+import { fetchPosts, type Post } from "@/lib/data";
 import { PostCard } from "@/components/shared/post-card";
 import { motion } from "framer-motion";
-import { Flame, Clock, TrendingUp, UserCheck, Sparkles } from "lucide-react";
+import { Flame, Clock, TrendingUp, UserCheck, Sparkles, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 
 const TABS: { id: FeedTab; label: string; icon: React.ComponentType<{ className?: string }>; description: string }[] = [
   { id: "trending", label: "Trending", icon: Flame, description: "Hot posts across all topics right now" },
   { id: "latest", label: "Latest", icon: Clock, description: "Fresh off the press" },
   { id: "popular", label: "Popular", icon: TrendingUp, description: "All-time most upvoted" },
-  { id: "following", label: "Following", icon: UserCheck, description: "From topics and people you follow" },
+  { id: "following", label: "Following", icon: UserCheck, description: "From topics you follow" },
 ];
 
 export function HomePage() {
-  const view = useNexusStore((s) => s.view);
-  const setView = useNexusStore((s) => s.setView);
-  const getFeed = useNexusStore((s) => s.getFeed);
-  const signedInUser = useSignedInUser();
+  const view = useUIStore((s) => s.view);
+  const setView = useUIStore((s) => s.setView);
+  const { profile } = useAuth();
+
+  const feedTab: FeedTab = (view as { feed?: FeedTab }).feed ?? "trending";
+  const [posts, setPosts] = React.useState<Post[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [visibleCount, setVisibleCount] = React.useState(8);
 
-  const feedTab: FeedTab = (view as { feed?: FeedTab }).feed ?? "trending";
-
   React.useEffect(() => {
     setLoading(true);
-    const t = setTimeout(() => setLoading(false), 300);
-    return () => clearTimeout(t);
-  }, [feedTab]);
+    let mounted = true;
+    (async () => {
+      const data = await fetchPosts({
+        sort: feedTab,
+        limit: 30,
+        currentUserId: profile?.id,
+      });
+      if (mounted) {
+        setPosts(data);
+        setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [feedTab, profile?.id]);
 
   React.useEffect(() => {
     setVisibleCount(8);
   }, [feedTab]);
-
-  const posts: Post[] = getFeed(feedTab);
 
   // Infinite scroll
   const sentinelRef = React.useRef<HTMLDivElement>(null);
@@ -60,7 +71,6 @@ export function HomePage() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      {/* Hero header */}
       {feedTab === "trending" && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -72,7 +82,7 @@ export function HomePage() {
             <div className="relative">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mb-3">
                 <Sparkles className="w-3 h-3" />
-                Welcome back, {signedInUser?.name.split(" ")[0]}
+                {profile ? `Welcome back, ${profile.name.split(" ")[0]}` : "Welcome to Nexus"}
               </div>
               <h1 className="text-2xl lg:text-3xl font-bold tracking-tight mb-2">
                 Today on Nexus
@@ -85,7 +95,6 @@ export function HomePage() {
         </motion.div>
       )}
 
-      {/* Tabs */}
       <div className="sticky top-16 z-10 -mx-4 lg:-mx-8 px-4 lg:px-8 py-3 glass-strong border-b border-border/40 mb-4">
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
           {TABS.map((tab) => {
@@ -114,20 +123,16 @@ export function HomePage() {
         </div>
       </div>
 
-      {/* Description */}
       <div className="mb-4 px-1 text-xs text-muted-foreground">
         {TABS.find((t) => t.id === feedTab)?.description}
-        {feedTab === "following" && !signedInUser?.followingTopics.length && (
-          <span className="ml-2 text-primary">· Follow some topics to see posts here.</span>
+        {feedTab === "following" && !profile && (
+          <span className="ml-2 text-primary">· Sign in to follow topics.</span>
         )}
       </div>
 
-      {/* Feed */}
       {loading ? (
         <div className="space-y-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <PostCardSkeleton key={i} />
-          ))}
+          {Array.from({ length: 4 }).map((_, i) => <PostCardSkeleton key={i} />)}
         </div>
       ) : visiblePosts.length === 0 ? (
         <EmptyFeed tab={feedTab} />
@@ -180,26 +185,28 @@ function PostCardSkeleton() {
 }
 
 function EmptyFeed({ tab }: { tab: FeedTab }) {
-  const setView = useNexusStore((s) => s.setView);
+  const setView = useUIStore((s) => s.setView);
   return (
     <div className="glass-card rounded-3xl p-12 text-center">
       <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-accent/50 flex items-center justify-center">
         {tab === "following" ? <UserCheck className="w-7 h-7 text-primary" /> : <Flame className="w-7 h-7 text-primary" />}
       </div>
       <h3 className="text-lg font-semibold mb-2">
-        {tab === "following" ? "Your following feed is empty" : "Nothing here yet"}
+        {tab === "following" ? "Your following feed is empty" : tab === "trending" ? "No trending posts yet" : tab === "latest" ? "No posts yet" : "No popular posts yet"}
       </h3>
       <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
         {tab === "following"
-          ? "Follow some topics and people to start seeing posts tailored to your interests."
-          : "Be the first to share something on this topic today."}
+          ? "Follow some topics to start seeing posts tailored to your interests here."
+          : "Be the first to share something on Nexus. Your post could be the one that kicks off the conversation."}
       </p>
-      <button
-        onClick={() => setView(tab === "following" ? { name: "topics" } : { name: "editor" })}
-        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:scale-[1.02] active:scale-[0.98] transition-transform"
-      >
-        {tab === "following" ? "Explore topics" : "Create the first post"}
-      </button>
+      <div className="flex items-center justify-center gap-2">
+        <Button onClick={() => setView({ name: "topics" })} variant="outline" className="rounded-xl gap-1.5">
+          Explore topics <ArrowRight className="w-3.5 h-3.5" />
+        </Button>
+        <Button onClick={() => setView({ name: "editor" })} className="rounded-xl">
+          Create the first post
+        </Button>
+      </div>
     </div>
   );
 }

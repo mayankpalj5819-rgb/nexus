@@ -2,25 +2,19 @@
 
 import * as React from "react";
 import { NexusRootShell } from "@/components/nexus-root-shell";
-import { useNexusStore } from "@/lib/store";
+import { useAuth } from "@/lib/auth";
 import { AuthScreen } from "@/components/features/auth/auth-screen";
 import { AnimatePresence, motion } from "framer-motion";
+import { NexusLogo } from "@/components/shared/nexus-logo";
 
 export function NexusApp({ children }: { children: React.ReactNode }) {
   // The page route is intentionally unused — Nexus runs as a single-page
-  // experience driven by a Zustand view-state. This keeps the app self-
-  // contained and gives us full control of transitions.
+  // experience driven by a UI view-state. This keeps the app self-contained.
   void children;
 
-  const session = useNexusStore((s) => s.session);
-  const bootstrapped = useNexusStore((s) => s.bootstrapped);
-  const bootstrap = useNexusStore((s) => s.bootstrap);
+  const { session, loading } = useAuth();
 
-  React.useEffect(() => {
-    bootstrap();
-  }, [bootstrap]);
-
-  if (!bootstrapped) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background aurora-bg">
         <div className="flex flex-col items-center gap-4">
@@ -74,31 +68,5 @@ export function NexusApp({ children }: { children: React.ReactNode }) {
         </motion.div>
       )}
     </AnimatePresence>
-  );
-}
-
-function NexusLogo({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-    >
-      <defs>
-        <linearGradient id="nexusGrad" x1="0" y1="0" x2="64" y2="64">
-          <stop offset="0%" stopColor="oklch(0.75 0.22 280)" />
-          <stop offset="50%" stopColor="oklch(0.7 0.25 304)" />
-          <stop offset="100%" stopColor="oklch(0.72 0.18 162)" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="16" fill="url(#nexusGrad)" />
-      <path
-        d="M20 44V20h4l16 16V20h4v24h-4L24 28v16h-4z"
-        fill="white"
-        fillOpacity="0.95"
-      />
-      <circle cx="32" cy="32" r="3" fill="white" />
-    </svg>
   );
 }

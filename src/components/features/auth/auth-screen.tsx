@@ -2,25 +2,26 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Sparkles, BookOpen, Users, TrendingUp } from "lucide-react";
-import { useNexusStore } from "@/lib/store";
+import { ArrowRight, Sparkles, BookOpen, Users, TrendingUp, Shield, Zap } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { NexusLogo } from "@/components/shared/nexus-logo";
 import { toast } from "sonner";
 
 export function AuthScreen() {
-  const signIn = useNexusStore((s) => s.signIn);
-  const users = useNexusStore((s) => s.users);
+  const { signInWithGoogle } = useAuth();
   const [loading, setLoading] = React.useState(false);
 
-  const handleGoogleSignIn = () => {
+  const handleGoogleSignIn = async () => {
     setLoading(true);
-    // In production this would redirect through Supabase OAuth with the
-    // configured Google provider. In the demo we simulate by signing in
-    // as the first seeded user (an admin) so the full app is explorable.
-    setTimeout(() => {
-      signIn("u1");
-      toast.success("Welcome to Nexus");
+    try {
+      await signInWithGoogle();
+      // OAuth redirect happens — toast is just in case it fails
+      toast.success("Redirecting to Google…");
+    } catch (e) {
+      console.error(e);
+      toast.error("Could not start Google sign-in");
       setLoading(false);
-    }, 700);
+    }
   };
 
   return (
@@ -30,6 +31,7 @@ export function AuthScreen() {
         <div className="flex items-center gap-2">
           <NexusLogo className="w-9 h-9" />
           <span className="text-xl font-semibold tracking-tight">Nexus</span>
+          <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full glass text-muted-foreground uppercase tracking-wider font-semibold">Beta</span>
         </div>
 
         <div className="py-12">
@@ -40,7 +42,7 @@ export function AuthScreen() {
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full glass text-xs font-medium text-muted-foreground mb-6"
           >
             <Sparkles className="w-3 h-3" />
-            Phase 1 · Public MVP
+            Phase 1 · Now in production
           </motion.div>
 
           <motion.h1
@@ -69,12 +71,12 @@ export function AuthScreen() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.25 }}
-            className="mt-8 flex flex-col sm:flex-row gap-3"
+            className="mt-8"
           >
             <button
               onClick={handleGoogleSignIn}
               disabled={loading}
-              className="group relative inline-flex items-center justify-center gap-3 px-6 py-3.5 rounded-xl bg-primary text-primary-foreground font-medium shadow-glow hover:scale-[1.02] active:scale-[0.98] transition-transform disabled:opacity-60"
+              className="group relative inline-flex items-center justify-center gap-3 px-6 py-3.5 rounded-2xl bg-primary text-primary-foreground font-medium shadow-glow hover:scale-[1.02] active:scale-[0.98] transition-transform disabled:opacity-60"
             >
               <GoogleIcon className="w-5 h-5" />
               {loading ? "Connecting…" : "Continue with Google"}
@@ -99,7 +101,7 @@ export function AuthScreen() {
         </div>
       </div>
 
-      {/* Right: visual / quick demo accounts */}
+      {/* Right: visual / value props */}
       <div className="hidden lg:flex flex-1 items-center justify-center p-16 relative">
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute -top-1/4 -right-1/4 w-[600px] h-[600px] rounded-full bg-primary/15 blur-3xl" />
@@ -110,29 +112,26 @@ export function AuthScreen() {
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.7, delay: 0.3 }}
-          className="relative w-full max-w-md glass-card rounded-3xl p-6 shadow-soft"
+          className="relative w-full max-w-md space-y-3"
         >
-          <div className="text-sm font-medium mb-4 text-muted-foreground">
-            Quick demo · explore as any seeded user
-          </div>
-          <div className="grid grid-cols-2 gap-2 max-h-[420px] overflow-y-auto pr-1 no-scrollbar">
-            {users.slice(0, 8).map((u) => (
-              <button
-                key={u.id}
-                onClick={() => { signIn(u.id); toast.success(`Signed in as ${u.name}`); }}
-                className="group flex items-center gap-3 p-3 rounded-xl hover:bg-accent transition-colors text-left"
-              >
-                <img src={u.avatar} alt={u.name} className="w-9 h-9 rounded-full bg-muted" />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium truncate">{u.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">@{u.username}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-          <div className="mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground">
-            Or use Google OAuth to create your own account.
-          </div>
+          <ValueProp
+            icon={<BookOpen className="w-5 h-5" />}
+            title="Follow topics, not people"
+            description="Science → Physics → Mechanics → Newton's Laws. Dive as deep as you want."
+            delay={0.35}
+          />
+          <ValueProp
+            icon={<Shield className="w-5 h-5" />}
+            title="No algorithmic noise"
+            description="Trending, latest, popular, following. You decide what you see."
+            delay={0.45}
+          />
+          <ValueProp
+            icon={<Zap className="w-5 h-5" />}
+            title="Built for thinking"
+            description="Rich markdown editor, nested discussions, real reputation for helpful answers."
+            delay={0.55}
+          />
         </motion.div>
       </div>
     </div>
@@ -150,20 +149,32 @@ function Feature({ icon, label }: { icon: React.ReactNode; label: string }) {
   );
 }
 
-function NexusLogo({ className }: { className?: string }) {
+function ValueProp({
+  icon,
+  title,
+  description,
+  delay,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  delay: number;
+}) {
   return (
-    <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-      <defs>
-        <linearGradient id="nexusGrad2" x1="0" y1="0" x2="64" y2="64">
-          <stop offset="0%" stopColor="oklch(0.75 0.22 280)" />
-          <stop offset="50%" stopColor="oklch(0.7 0.25 304)" />
-          <stop offset="100%" stopColor="oklch(0.72 0.18 162)" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="16" fill="url(#nexusGrad2)" />
-      <path d="M20 44V20h4l16 16V20h4v24h-4L24 28v16h-4z" fill="white" fillOpacity="0.95" />
-      <circle cx="32" cy="32" r="3" fill="white" />
-    </svg>
+    <motion.div
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.5, delay }}
+      className="glass-card rounded-2xl p-5 flex items-start gap-4 shadow-soft"
+    >
+      <div className="w-10 h-10 rounded-xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="font-semibold text-sm">{title}</div>
+        <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{description}</p>
+      </div>
+    </motion.div>
   );
 }
 

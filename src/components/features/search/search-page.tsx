@@ -1,46 +1,60 @@
 "use client";
 
 import * as React from "react";
-import { useNexusStore, type SearchFilter, type Post, type Topic, type User } from "@/lib/store";
+import { useUIStore, type SearchFilter } from "@/lib/ui-store";
+import { useAuth } from "@/lib/auth";
+import { searchAll, type Post, type Topic, type Profile } from "@/lib/data";
 import { Input } from "@/components/ui/input";
-import { Search, X, Clock, FileText, Hash, User as UserIcon, TrendingUp } from "lucide-react";
+import { Search, X, Clock, FileText, Hash, User as UserIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PostCard } from "@/components/shared/post-card";
 import { motion } from "framer-motion";
-import { formatNumber, timeAgo } from "@/lib/helpers";
+import { formatNumber } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 
 export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: string; initialFilter?: SearchFilter }) {
-  const searchAll = useNexusStore((s) => s.searchAll);
-  const recentSearches = useNexusStore((s) => s.recentSearches);
-  const addRecentSearch = useNexusStore((s) => s.addRecentSearch);
-  const setView = useNexusStore((s) => s.setView);
+  const setView = useUIStore((s) => s.setView);
+  const addRecentSearch = useUIStore((s) => s.addRecentSearch);
+  const recentSearches = useUIStore((s) => s.recentSearches);
+  const { profile } = useAuth();
 
   const [query, setQuery] = React.useState(initialQuery ?? "");
   const [filter, setFilter] = React.useState<SearchFilter>(initialFilter ?? "all");
   const [debounced, setDebounced] = React.useState(initialQuery ?? "");
   const [hasSearched, setHasSearched] = React.useState(!!initialQuery);
+  const [results, setResults] = React.useState<{ posts: Post[]; topics: Topic[]; users: Profile[] }>({ posts: [], topics: [], users: [] });
+  const [loading, setLoading] = React.useState(false);
 
-  // Debounce query
   React.useEffect(() => {
     const t = setTimeout(() => {
       setDebounced(query);
       if (query.trim()) {
         addRecentSearch(query.trim());
         setHasSearched(true);
+        setLoading(true);
       } else {
         setHasSearched(false);
+        setResults({ posts: [], topics: [], users: [] });
       }
-    }, 250);
+    }, 300);
     return () => clearTimeout(t);
   }, [query, addRecentSearch]);
 
-  const results = React.useMemo(() => searchAll(debounced, filter), [debounced, filter, searchAll]);
+  React.useEffect(() => {
+    if (!debounced.trim()) return;
+    let mounted = true;
+    (async () => {
+      const r = await searchAll(debounced, filter, profile?.id);
+      if (mounted) {
+        setResults(r);
+        setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [debounced, filter, profile?.id]);
 
   return (
     <div className="max-w-3xl mx-auto">
-      {/* Search input */}
       <div className="relative mb-4">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
@@ -51,16 +65,12 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
           autoFocus
         />
         {query && (
-          <button
-            onClick={() => setQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-accent"
-          >
+          <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-accent">
             <X className="w-4 h-4 text-muted-foreground" />
           </button>
         )}
       </div>
 
-      {/* Filter pills */}
       <div className="flex items-center gap-1 mb-6 p-0.5 rounded-xl bg-muted/40 w-fit">
         {(["all", "posts", "topics", "users"] as SearchFilter[]).map((f) => (
           <button
@@ -76,12 +86,9 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
         ))}
       </div>
 
-      {/* Recent searches when no query */}
       {!hasSearched && recentSearches.length > 0 && (
         <div className="mb-6">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-            Recent searches
-          </div>
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Recent searches</div>
           <div className="flex flex-wrap gap-1.5">
             {recentSearches.map((q) => (
               <button
@@ -97,7 +104,6 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
         </div>
       )}
 
-      {/* Results */}
       {!hasSearched ? (
         <div className="glass-card rounded-3xl p-12 text-center">
           <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-accent/50 flex items-center justify-center">
@@ -107,6 +113,10 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
           <p className="text-sm text-muted-foreground max-w-sm mx-auto">
             Find posts, topics, and people across the knowledge graph. Start typing to see instant results.
           </p>
+        </div>
+      ) : loading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => <div key={i} className="glass-card rounded-2xl h-20 animate-pulse" />)}
         </div>
       ) : (results.posts.length + results.topics.length + results.users.length) === 0 ? (
         <div className="glass-card rounded-3xl p-12 text-center">
@@ -118,12 +128,11 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Topics section */}
           {(filter === "all" || filter === "topics") && results.topics.length > 0 && (
             <section>
               <SectionHeader icon={<Hash className="w-4 h-4" />} label="Topics" count={results.topics.length} />
               <div className="grid sm:grid-cols-2 gap-2">
-                {results.topics.map((t: Topic) => (
+                {results.topics.map((t) => (
                   <button
                     key={t.id}
                     onClick={() => setView({ name: "topic", topicId: t.id })}
@@ -135,9 +144,7 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium group-hover:text-primary transition-colors">{t.name}</div>
                       <p className="text-xs text-muted-foreground line-clamp-1">{t.description}</p>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">
-                        {formatNumber(t.followers.length)} followers · {t.postCount} posts
-                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{t.post_count} posts</div>
                     </div>
                   </button>
                 ))}
@@ -145,25 +152,24 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
             </section>
           )}
 
-          {/* Users section */}
           {(filter === "all" || filter === "users") && results.users.length > 0 && (
             <section>
               <SectionHeader icon={<UserIcon className="w-4 h-4" />} label="People" count={results.users.length} />
               <div className="grid sm:grid-cols-2 gap-2">
-                {results.users.map((u: User) => (
+                {results.users.map((u) => (
                   <button
                     key={u.id}
                     onClick={() => setView({ name: "profile", userId: u.id, tab: "posts" })}
                     className="group flex items-center gap-3 p-3 rounded-xl glass-card hover:shadow-soft transition-shadow text-left"
                   >
                     <Avatar className="w-10 h-10">
-                      <AvatarImage src={u.avatar} alt={u.name} />
-                      <AvatarFallback>{u.name[0]}</AvatarFallback>
+                      {u.avatar_url ? <AvatarImage src={u.avatar_url} alt={u.name} /> : null}
+                      <AvatarFallback>{u.name[0]?.toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">{u.name}</div>
                       <div className="text-xs text-muted-foreground truncate">@{u.username}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">{formatNumber(u.followers.length)} followers · {formatNumber(u.reputation)} rep</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{formatNumber(u.reputation)} rep</div>
                     </div>
                   </button>
                 ))}
@@ -171,14 +177,11 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
             </section>
           )}
 
-          {/* Posts section */}
           {(filter === "all" || filter === "posts") && results.posts.length > 0 && (
             <section>
               <SectionHeader icon={<FileText className="w-4 h-4" />} label="Posts" count={results.posts.length} />
               <div className="space-y-3">
-                {results.posts.map((p: Post) => (
-                  <PostCard key={p.id} post={p} compact />
-                ))}
+                {results.posts.map((p) => <PostCard key={p.id} post={p} compact />)}
               </div>
             </section>
           )}

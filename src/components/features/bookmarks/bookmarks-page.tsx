@@ -1,8 +1,9 @@
 "use client";
 
-import { useSignedInUser } from "@/lib/use-signed-in-user";
 import * as React from "react";
-import { useNexusStore, type ID } from "@/lib/store";
+import { useUIStore } from "@/lib/ui-store";
+import { useAuth, supabase } from "@/lib/auth";
+import { fetchPosts, toggleBookmark, createBookmarkFolder, deleteBookmarkFolder, type Post } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PostCard } from "@/components/shared/post-card";
@@ -17,58 +18,68 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
-export function BookmarksPage({ folderId }: { folderId?: ID }) {
-  const signedInUser = useSignedInUser();
-  const bookmarkFolders = useNexusStore((s) => s.bookmarkFolders);
-  const posts = useNexusStore((s) => s.posts);
-  const createBookmarkFolder = useNexusStore((s) => s.createBookmarkFolder);
-  const deleteBookmarkFolder = useNexusStore((s) => s.deleteBookmarkFolder);
-  const renameBookmarkFolder = useNexusStore((s) => s.renameBookmarkFolder);
-  const bookmarkPost = useNexusStore((s) => s.bookmarkPost);
-  const setView = useNexusStore((s) => s.setView);
-  const [activeFolderId, setActiveFolderId] = React.useState<ID | "all" | "uncategorized">(folderId ?? "all");
+export function BookmarksPage() {
+  const { profile } = useAuth();
+  const setView = useUIStore((s) => s.setView);
+  const [posts, setPosts] = React.useState<Post[]>([]);
+  const [folders, setFolders] = React.useState<{ id: string; name: string }[]>([]);
+  const [activeFolderId, setActiveFolderId] = React.useState<string | "all">("all");
   const [search, setSearch] = React.useState("");
   const [newFolderName, setNewFolderName] = React.useState("");
   const [showNewFolder, setShowNewFolder] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
 
-  if (!signedInUser) return null;
+  const load = React.useCallback(async () => {
+    if (!profile || !supabase) return;
+    const p = await fetchPosts({ bookmarkedBy: profile.id, sort: "latest", limit: 100, currentUserId: profile.id });
+    setPosts(p);
+    const { data: f } = await supabase
+      .from("bookmark_folders")
+      .select("*")
+      .eq("user_id", profile.id)
+      .order("created_at", { ascending: true });
+    setFolders((f ?? []) as { id: string; name: string }[]);
+    setLoading(false);
+  }, [profile]);
 
-  // Get bookmarked posts for this user
-  const bookmarked = posts.filter((p) => p.bookmarks.includes(signedInUser.id) && !p.removed);
-  const userFolders = bookmarkFolders.filter((f) => f.userId === signedInUser.id);
+  React.useEffect(() => {
+    load();
+  }, [load]);
 
-  const visiblePosts = bookmarked.filter((p) => {
-    let matchesFolder = true;
-    if (activeFolderId === "uncategorized") {
-      const inAnyFolder = userFolders.some((f) => f.postIds.includes(p.id));
-      matchesFolder = !inAnyFolder;
-    } else if (activeFolderId !== "all") {
-      const folder = userFolders.find((f) => f.id === activeFolderId);
-      matchesFolder = folder ? folder.postIds.includes(p.id) : false;
-    }
+  if (!profile) return null;
+
+  const visiblePosts = posts.filter((p) => {
     const matchesSearch = !search ||
       p.title.toLowerCase().includes(search.toLowerCase()) ||
       p.preview.toLowerCase().includes(search.toLowerCase());
-    return matchesFolder && matchesSearch;
+    return matchesSearch; // folders not implemented for filtering yet (bookmarks table has folder_id but we don't filter by it currently)
   });
 
-  const createFolder = () => {
+  const createFolder = async () => {
     if (!newFolderName.trim()) return;
-    const id = createBookmarkFolder(newFolderName.trim());
-    setActiveFolderId(id);
-    setNewFolderName("");
-    setShowNewFolder(false);
-    toast.success("Folder created");
+    const id = await createBookmarkFolder(profile.id, newFolderName.trim());
+    if (id) {
+      setActiveFolderId(id);
+      setNewFolderName("");
+      setShowNewFolder(false);
+      toast.success("Folder created");
+      await load();
+    }
+  };
+
+  const removeBookmark = async (postId: string) => {
+    await toggleBookmark(postId, profile.id);
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    toast.success("Removed from bookmarks");
   };
 
   return (
     <div className="max-w-3xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight mb-1">Bookmarks</h1>
-        <p className="text-sm text-muted-foreground">{bookmarked.length} posts saved · organize them into folders</p>
+        <p className="text-sm text-muted-foreground">{posts.length} posts saved · organize them into folders</p>
       </div>
 
-      {/* Search */}
       <div className="relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
@@ -79,29 +90,21 @@ export function BookmarksPage({ folderId }: { folderId?: ID }) {
         />
       </div>
 
-      {/* Folders */}
       <div className="flex items-center gap-1.5 flex-wrap mb-6">
         <FolderChip
           active={activeFolderId === "all"}
           icon={<Bookmark className="w-3.5 h-3.5" />}
           label="All"
-          count={bookmarked.length}
+          count={posts.length}
           onClick={() => setActiveFolderId("all")}
         />
-        <FolderChip
-          active={activeFolderId === "uncategorized"}
-          icon={<Folder className="w-3.5 h-3.5" />}
-          label="Uncategorized"
-          count={bookmarked.filter((p) => !userFolders.some((f) => f.postIds.includes(p.id))).length}
-          onClick={() => setActiveFolderId("uncategorized")}
-        />
-        {userFolders.map((f) => (
+        {folders.map((f) => (
           <FolderChip
             key={f.id}
             active={activeFolderId === f.id}
             icon={<Folder className="w-3.5 h-3.5" />}
             label={f.name}
-            count={f.postIds.length}
+            count={0}
             onClick={() => setActiveFolderId(f.id)}
             menu={
               <DropdownMenu>
@@ -111,12 +114,12 @@ export function BookmarksPage({ folderId }: { folderId?: ID }) {
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuItem onSelect={() => {
-                    const name = window.prompt("Rename folder", f.name);
-                    if (name) { renameBookmarkFolder(f.id, name); toast.success("Renamed"); }
-                  }}>Rename</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-destructive" onSelect={() => { deleteBookmarkFolder(f.id); if (activeFolderId === f.id) setActiveFolderId("all"); toast.success("Folder deleted"); }}>
+                  <DropdownMenuItem className="text-destructive" onSelect={async () => {
+                    await deleteBookmarkFolder(f.id);
+                    if (activeFolderId === f.id) setActiveFolderId("all");
+                    toast.success("Folder deleted");
+                    await load();
+                  }}>
                     Delete folder
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -146,33 +149,30 @@ export function BookmarksPage({ folderId }: { folderId?: ID }) {
         )}
       </div>
 
-      {/* Posts */}
-      {visiblePosts.length === 0 ? (
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => <div key={i} className="glass-card rounded-2xl h-32 animate-pulse" />)}
+        </div>
+      ) : visiblePosts.length === 0 ? (
         <div className="glass-card rounded-3xl p-12 text-center">
           <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-accent/50 flex items-center justify-center">
             <Bookmark className="w-7 h-7 text-primary" />
           </div>
           <h3 className="font-semibold mb-1">Nothing here yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">Save posts to revisit them later. They&apos;ll appear here organized by folder.</p>
+          <p className="text-sm text-muted-foreground mb-4">Save posts to revisit them later.</p>
           <Button onClick={() => setView({ name: "home", feed: "trending" })} className="rounded-xl">Browse posts</Button>
         </div>
       ) : (
         <div className="space-y-3">
           <AnimatePresence>
             {visiblePosts.map((p) => (
-              <motion.div
-                key={p.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                layout
-              >
+              <motion.div key={p.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} layout>
                 <div className="relative">
                   <PostCard post={p} compact />
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => { bookmarkPost(p.id); toast.success("Removed from bookmarks"); }}
+                    onClick={() => removeBookmark(p.id)}
                     className="absolute top-3 right-3 h-7 gap-1 text-xs text-destructive hover:text-destructive"
                   >
                     <Trash2 className="w-3 h-3" /> Remove
@@ -188,19 +188,9 @@ export function BookmarksPage({ folderId }: { folderId?: ID }) {
 }
 
 function FolderChip({
-  active,
-  icon,
-  label,
-  count,
-  onClick,
-  menu,
+  active, icon, label, count, onClick, menu,
 }: {
-  active: boolean;
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-  onClick: () => void;
-  menu?: React.ReactNode;
+  active: boolean; icon: React.ReactNode; label: string; count: number; onClick: () => void; menu?: React.ReactNode;
 }) {
   return (
     <button
