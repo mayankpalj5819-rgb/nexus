@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useUIStore } from "@/lib/ui-store";
 import { useAuth } from "@/lib/auth";
+import { NexusLogo } from "@/components/shared/nexus-logo";
 import { NexusEditor, type NexusEditorHandle } from "@/components/features/editor/nexus-editor";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,7 @@ import { PostTemplatePicker, MarkdownCheatSheet } from "@/components/features/ed
 
 export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?: string }) {
   const editorRef = React.useRef<NexusEditorHandle>(null);
-  const { profile } = useAuth();
+  const { profile, loading: authLoading, session, signInWithGoogle } = useAuth();
   const setView = useUIStore((s) => s.setView);
   const [topics, setTopics] = React.useState<Topic[]>([]);
   const [title, setTitle] = React.useState("");
@@ -26,7 +27,7 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
   const [selectedTopics, setSelectedTopics] = React.useState<string[]>([]);
   const [tags, setTags] = React.useState("");
   const [mode, setMode] = React.useState<"write" | "preview">("write");
-  const [loading, setLoading] = React.useState(true);
+  const [topicsLoading, setTopicsLoading] = React.useState(true);
 
   React.useEffect(() => {
     let mounted = true;
@@ -51,7 +52,7 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
           };
           trySet();
         }
-        setLoading(false);
+        setTopicsLoading(false);
       } else if (topicId) {
         setSelectedTopics([topicId]);
       }
@@ -59,20 +60,49 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
     return () => { mounted = false; };
   }, [postId, topicId, profile?.id]);
 
-  if (!profile) {
+  // Show loading state while auth is being determined
+  if (authLoading || (session && !profile)) {
     return (
-      <div className="max-w-3xl mx-auto text-center py-20">
-        <h2 className="text-xl font-semibold mb-2">Sign in required</h2>
-        <p className="text-sm text-muted-foreground">You need to be signed in to create posts.</p>
+      <div className="max-w-3xl mx-auto space-y-4">
+        <div className="h-14 rounded-2xl animate-pulse bg-muted/40" />
+        <div className="h-48 rounded-2xl animate-pulse bg-muted/40" />
+        <div className="h-96 rounded-2xl animate-pulse bg-muted/40" />
+        <div className="text-center text-sm text-muted-foreground py-2">
+          Loading editor…
+        </div>
       </div>
     );
   }
 
-  if (loading) {
-    return <div className="max-w-3xl mx-auto space-y-4">
-      <div className="h-14 rounded-2xl animate-pulse" />
-      <div className="h-96 rounded-2xl animate-pulse" />
-    </div>;
+  // If truly not signed in (no session at all)
+  if (!session) {
+    return (
+      <div className="max-w-3xl mx-auto text-center py-20">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-accent/50 flex items-center justify-center">
+          <NexusLogo className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-semibold mb-2">Sign in to create posts</h2>
+        <p className="text-sm text-muted-foreground mb-6">You need to be signed in to share knowledge on Nexus.</p>
+        <Button onClick={() => signInWithGoogle()} className="rounded-xl">
+          Continue with Google
+        </Button>
+      </div>
+    );
+  }
+
+  // Signed in but profile failed to load (rare edge case) — show error with retry
+  if (!profile) {
+    return (
+      <div className="max-w-3xl mx-auto text-center py-20">
+        <h2 className="text-xl font-semibold mb-2">Profile not loaded</h2>
+        <p className="text-sm text-muted-foreground mb-6">
+          Your session is active but your profile couldn&apos;t be loaded. Try refreshing the page.
+        </p>
+        <Button onClick={() => window.location.reload()} className="rounded-xl">
+          Refresh page
+        </Button>
+      </div>
+    );
   }
 
   const toggleTopic = (id: string) => {

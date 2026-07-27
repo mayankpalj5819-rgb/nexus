@@ -8,13 +8,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PostCard } from "@/components/shared/post-card";
-import { Calendar, Link as LinkIcon, MapPin, Award, Users, BookOpen, Edit, Shield, Ban } from "lucide-react";
+import { Calendar, Link as LinkIcon, MapPin, Award, Users, BookOpen, Edit, Shield, Ban, Sparkles, TrendingUp, FileText, MessageSquare, ArrowRight, Check } from "lucide-react";
 import { motion } from "framer-motion";
-import { formatNumber, formatDate } from "@/lib/helpers";
+import { formatNumber, formatDate, timeAgo } from "@/lib/helpers";
 import { toast } from "sonner";
+import { EditProfileModal } from "@/components/features/profile/edit-profile-modal";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Comment, Topic } from "@/lib/data";
+import type { Post, Comment, Topic } from "@/lib/data";
 
 export function ProfilePage({ userId, initialTab }: { userId?: string; initialTab?: ProfileTab }) {
   const setView = useUIStore((s) => s.setView);
@@ -22,6 +23,7 @@ export function ProfilePage({ userId, initialTab }: { userId?: string; initialTa
   const [user, setUser] = React.useState<Profile | null>(null);
   const [stats, setStats] = React.useState({ followers: 0, following: 0, topicsFollowing: 0, postCount: 0 });
   const [following, setFollowing] = React.useState(false);
+  const [editOpen, setEditOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
 
   const targetId = userId ?? currentUser?.id;
@@ -111,9 +113,14 @@ export function ProfilePage({ userId, initialTab }: { userId?: string; initialTa
           </div>
           <div className="flex items-center gap-2 mb-1">
             {isSelf ? (
-              <Button variant="outline" onClick={() => setView({ name: "settings" })} className="rounded-xl gap-1.5">
-                <Edit className="w-3.5 h-3.5" /> Edit profile
-              </Button>
+              <>
+                <Button variant="outline" onClick={() => setEditOpen(true)} className="rounded-xl gap-1.5">
+                  <Edit className="w-3.5 h-3.5" /> Edit profile
+                </Button>
+                <Button variant="ghost" onClick={() => setView({ name: "settings" })} className="rounded-xl gap-1.5">
+                  <Shield className="w-3.5 h-3.5" /> Settings
+                </Button>
+              </>
             ) : currentUser ? (
               <>
                 <Button
@@ -178,7 +185,47 @@ export function ProfilePage({ userId, initialTab }: { userId?: string; initialTa
         </div>
       </div>
 
+      {/* Profile completion banner for self */}
+      {isSelf && !user.bio && !user.website && (
+        <div className="mb-4 glass-card rounded-2xl p-4 flex items-center gap-3 border border-primary/20">
+          <div className="w-10 h-10 rounded-xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium">Complete your profile</div>
+            <div className="text-xs text-muted-foreground">Add a bio and website so people know what you&apos;re about.</div>
+          </div>
+          <Button size="sm" onClick={() => setEditOpen(true)} className="rounded-lg gap-1.5 shrink-0">
+            <Edit className="w-3.5 h-3.5" /> Edit
+          </Button>
+        </div>
+      )}
+
+      {/* Writing stats for self */}
+      {isSelf && stats.postCount > 0 && (
+        <div className="mb-4 grid grid-cols-3 gap-2">
+          <div className="glass-card rounded-xl p-3 text-center">
+            <FileText className="w-4 h-4 mx-auto text-muted-foreground mb-1" />
+            <div className="text-lg font-bold">{stats.postCount}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Posts</div>
+          </div>
+          <div className="glass-card rounded-xl p-3 text-center">
+            <Users className="w-4 h-4 mx-auto text-muted-foreground mb-1" />
+            <div className="text-lg font-bold">{stats.followers}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Followers</div>
+          </div>
+          <div className="glass-card rounded-xl p-3 text-center">
+            <TrendingUp className="w-4 h-4 mx-auto text-muted-foreground mb-1" />
+            <div className="text-lg font-bold">{formatNumber(user.reputation)}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Reputation</div>
+          </div>
+        </div>
+      )}
+
       <ProfileTabs userId={user.id} initialTab={initialTab} isSelf={isSelf} />
+
+      {/* Edit profile modal */}
+      <EditProfileModal open={editOpen} onOpenChange={setEditOpen} />
     </div>
   );
 }
@@ -376,9 +423,7 @@ function ProfileTabs({ userId, initialTab, isSelf }: { userId: string; initialTa
       </TabsContent>
 
       <TabsContent value="activity" className="mt-0">
-        <div className="glass-card rounded-2xl p-12 text-center text-sm text-muted-foreground">
-          Activity feed coming soon — recent posts, comments, votes, and follows will appear here.
-        </div>
+        <ActivityFeed userId={userId} posts={posts} comments={comments} />
       </TabsContent>
     </Tabs>
   );
@@ -387,5 +432,102 @@ function ProfileTabs({ userId, initialTab, isSelf }: { userId: string; initialTa
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="glass-card rounded-2xl p-12 text-center text-sm text-muted-foreground">{message}</div>
+  );
+}
+
+function ActivityFeed({ userId, posts, comments }: { userId: string; posts: Post[]; comments: (Comment & { post_title?: string })[] }) {
+  const setView = useUIStore((s) => s.setView);
+  const [votes, setVotes] = React.useState<{ id: string; post_id: string; value: number; created_at: string; post_title: string }[]>([]);
+
+  React.useEffect(() => {
+    if (!supabase) return;
+    let mounted = true;
+    (async () => {
+      // Fetch user's votes with post titles
+      const { data: voteData } = await supabase
+        .from("post_votes")
+        .select("post_id, value, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (!mounted || !voteData) return;
+      const postIds = [...new Set(voteData.map((v: { post_id: string }) => v.post_id))];
+      if (postIds.length === 0) { setVotes([]); return; }
+      const { data: postTitles } = await supabase
+        .from("posts")
+        .select("id, title")
+        .in("id", postIds);
+      const titleMap = new Map<string, string>((postTitles ?? []).map((p: { id: string; title: string }) => [p.id, p.title]));
+      setVotes(voteData.map((v: { post_id: string; value: number; created_at: string }) => ({
+        id: v.post_id + v.created_at,
+        post_id: v.post_id,
+        value: v.value,
+        created_at: v.created_at,
+        post_title: titleMap.get(v.post_id) ?? "Untitled",
+      })));
+    })();
+    return () => { mounted = false; };
+  }, [userId, supabase]);
+
+  type ActivityItem = { id: string; type: "post" | "comment" | "upvote" | "downvote"; title: string; sub: string; postId?: string; createdAt: string };
+  const items: ActivityItem[] = [
+    ...posts.map((p) => ({
+      id: "post-" + p.id,
+      type: "post" as const,
+      title: `Published "${p.title}"`,
+      sub: `${p.upvote_count - p.downvote_count} upvotes · ${p.comment_count} comments`,
+      postId: p.id,
+      createdAt: p.created_at,
+    })),
+    ...comments.map((c) => ({
+      id: "comment-" + c.id,
+      type: "comment" as const,
+      title: `Commented on "${c.post_title ?? "a post"}"`,
+      sub: c.content.slice(0, 80) + (c.content.length > 80 ? "…" : ""),
+      postId: c.post_id,
+      createdAt: c.created_at,
+    })),
+    ...votes.map((v) => ({
+      id: "vote-" + v.id,
+      type: v.value === 1 ? "upvote" as const : "downvote" as const,
+      title: `${v.value === 1 ? "Upvoted" : "Downvoted"} "${v.post_title}"`,
+      sub: "",
+      postId: v.post_id,
+      createdAt: v.created_at,
+    })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 30);
+
+  if (items.length === 0) {
+    return <EmptyState message="No recent activity. Start by posting or commenting!" />;
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map((item) => {
+        const Icon = item.type === "post" ? FileText : item.type === "comment" ? MessageSquare : item.type === "upvote" ? TrendingUp : TrendingUp;
+        const color = item.type === "post" ? "text-blue-500 bg-blue-500/15" :
+                      item.type === "comment" ? "text-purple-500 bg-purple-500/15" :
+                      item.type === "upvote" ? "text-emerald-500 bg-emerald-500/15" :
+                      "text-rose-500 bg-rose-500/15";
+        return (
+          <button
+            key={item.id}
+            onClick={() => item.postId && setView({ name: "post", postId: item.postId })}
+            className="block w-full text-left glass-card rounded-xl p-3 hover:bg-accent/50 transition-colors"
+          >
+            <div className="flex items-start gap-3">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
+                <Icon className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium line-clamp-1">{item.title}</div>
+                {item.sub && <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{item.sub}</div>}
+                <div className="text-[10px] text-muted-foreground mt-1">{timeAgo(item.createdAt)} ago</div>
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
