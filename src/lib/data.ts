@@ -628,6 +628,25 @@ export async function voteOnComment(
 }
 
 // ============================================================================
+// Image uploads (Supabase Storage)
+// ============================================================================
+
+export async function uploadPostImage(file: File, userId: string): Promise<string | null> {
+  if (!supabase) return null;
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await supabase.storage
+    .from("post-images")
+    .upload(path, file, { cacheControl: "3600", upsert: false });
+  if (error) {
+    console.error("uploadPostImage error:", error);
+    return null;
+  }
+  const { data } = supabase.storage.from("post-images").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// ============================================================================
 // Bookmarks
 // ============================================================================
 

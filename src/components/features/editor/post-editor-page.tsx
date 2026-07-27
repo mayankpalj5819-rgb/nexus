@@ -13,9 +13,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { fetchTopics, createPost, updatePost, fetchPost, type Topic } from "@/lib/data";
+import { fetchTopics, createPost, updatePost, fetchPost, uploadPostImage, type Topic } from "@/lib/data";
 import { wordCount, readingTime } from "@/lib/helpers";
 import { PostTemplatePicker, MarkdownCheatSheet } from "@/components/features/editor/editor-extras";
+import { ImagePlus, Loader2 } from "lucide-react";
 
 export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?: string }) {
   const editorRef = React.useRef<NexusEditorHandle>(null);
@@ -28,6 +29,8 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
   const [tags, setTags] = React.useState("");
   const [mode, setMode] = React.useState<"write" | "preview">("write");
   const [topicsLoading, setTopicsLoading] = React.useState(true);
+  const [uploadingImage, setUploadingImage] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     let mounted = true;
@@ -210,6 +213,47 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
           placeholder="e.g. physics, classical-mechanics, symmetry"
           className="rounded-xl glass"
         />
+      </div>
+
+      {/* Image upload button */}
+      <div className="mb-4">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file || !profile) return;
+            if (file.size > 5 * 1024 * 1024) {
+              toast.error("Image must be under 5MB");
+              return;
+            }
+            setUploadingImage(true);
+            const url = await uploadPostImage(file, profile.id);
+            setUploadingImage(false);
+            if (url) {
+              // Insert markdown image into content
+              const newContent = content + (content ? "\n\n" : "") + `![${file.name}](${url})\n`;
+              setContent(newContent);
+              editorRef.current?.setMarkdown(newContent);
+              toast.success("Image uploaded and inserted");
+            } else {
+              toast.error("Upload failed");
+            }
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }}
+        />
+        <Button
+          variant="outline"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadingImage}
+          className="rounded-xl gap-2"
+        >
+          {uploadingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+          {uploadingImage ? "Uploading..." : "Upload image"}
+        </Button>
+        <p className="text-xs text-muted-foreground mt-1.5">PNG, JPG, GIF, WebP — up to 5MB. Images are inserted into your post.</p>
       </div>
 
       <Tabs value={mode} onValueChange={(v) => setMode(v as "write" | "preview")}>

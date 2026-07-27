@@ -13,6 +13,7 @@ import { motion } from "framer-motion";
 import { formatNumber, formatDate, timeAgo } from "@/lib/helpers";
 import { toast } from "sonner";
 import { EditProfileModal } from "@/components/features/profile/edit-profile-modal";
+import { UserBadges } from "@/components/features/profile/user-badges";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Post, Comment, Topic } from "@/lib/data";
@@ -183,6 +184,11 @@ export function ProfilePage({ userId, initialTab }: { userId?: string; initialTa
           <StatCard icon={<Users className="w-4 h-4" />} label="Following" value={formatNumber(stats.following)} />
           <StatCard icon={<BookOpen className="w-4 h-4" />} label="Topics" value={formatNumber(stats.topicsFollowing)} />
         </div>
+      </div>
+
+      {/* User badges */}
+      <div className="mb-4">
+        <UserBadges profile={user} postCount={stats.postCount} followerCount={stats.followers} />
       </div>
 
       {/* Profile completion banner for self */}

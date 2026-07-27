@@ -32,6 +32,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ReadingProgressBar, BackToTopButton } from "@/components/shared/reading-progress";
+import { trackViewedPost } from "@/components/features/feed/recently-viewed";
 
 export function PostDetailPage({ postId }: { postId: string }) {
   const setView = useUIStore((s) => s.setView);
@@ -60,9 +61,18 @@ export function PostDetailPage({ postId }: { postId: string }) {
       await loadPost();
       await loadComments();
       if (!mounted) return;
+      // Track this post as recently viewed
+      if (post) {
+        trackViewedPost({
+          id: post.id,
+          title: post.title,
+          topicName: post.topics?.[0]?.name,
+          topicIcon: post.topics?.[0]?.icon,
+        });
+      }
     })();
     return () => { mounted = false; };
-  }, [loadPost, loadComments]);
+  }, [loadPost, loadComments, post?.id]);
 
   if (loading) {
     return (

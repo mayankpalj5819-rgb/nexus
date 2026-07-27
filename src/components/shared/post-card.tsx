@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { PostReactions } from "@/components/shared/post-reactions";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
@@ -282,6 +283,8 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
           onClick={() => setView({ name: "post", postId: localPost.id })}
           hoverLabel="Comments"
         />
+
+        <PostReactions postId={localPost.id} />
 
         <div className="flex-1" />
 

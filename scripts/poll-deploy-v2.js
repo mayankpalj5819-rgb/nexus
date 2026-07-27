@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Poll Render deploy until it finishes
-const RENDER_API_KEY = 'rnd_J0cQLwplMdTvfgaWktXLL0lTPtPE';
+const RENDER_API_KEY = 'process.env.RENDER_API_KEY';
 const SERVICE_ID = 'srv-d9jbq9rtqb8s73a3jo8g';
 
 (async () => {

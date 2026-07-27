@@ -8,6 +8,8 @@ import { NexusMobileNav } from "@/components/layout/mobile-nav";
 import { NexusViewRouter } from "@/components/layout/view-router";
 import { KeyboardShortcutsOverlay } from "@/components/layout/keyboard-shortcuts";
 import { OnboardingFlow } from "@/components/features/onboarding/onboarding-flow";
+import { SuggestedWidget } from "@/components/features/feed/suggested-widget";
+import { RecentlyViewed } from "@/components/features/feed/recently-viewed";
 import { useUIStore } from "@/lib/ui-store";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -206,6 +208,12 @@ function NexusRightRail() {
           </div>
         </div>
       )}
+
+      {/* Suggested topics + people to follow */}
+      <SuggestedWidget />
+
+      {/* Recently viewed posts */}
+      <RecentlyViewed />
 
       <div className="text-xs text-muted-foreground px-2 leading-relaxed">
         <p className="font-medium text-foreground mb-1">Nexus · Phase 1</p>
