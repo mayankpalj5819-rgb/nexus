@@ -31,6 +31,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ReadingProgressBar, BackToTopButton } from "@/components/shared/reading-progress";
 
 export function PostDetailPage({ postId }: { postId: string }) {
   const setView = useUIStore((s) => s.setView);
@@ -39,7 +40,7 @@ export function PostDetailPage({ postId }: { postId: string }) {
   const [comments, setComments] = React.useState<Comment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [newComment, setNewComment] = React.useState("");
-  const [sort, setSort] = React.useState<"top" | "new">("top");
+  const [sort, setSort] = React.useState<"top" | "new" | "controversial">("top");
 
   const loadPost = React.useCallback(async () => {
     const p = await fetchPost(postId, profile?.id);
@@ -151,11 +152,19 @@ export function PostDetailPage({ postId }: { postId: string }) {
 
   const sortedComments = [...comments].sort((a, b) => {
     if (sort === "new") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (sort === "controversial") {
+      // Controversial = lots of votes on both sides (close ratio + high volume)
+      const scoreA = Math.min(a.upvote_count, a.downvote_count) * (a.upvote_count + a.downvote_count);
+      const scoreB = Math.min(b.upvote_count, b.downvote_count) * (b.upvote_count + b.downvote_count);
+      return scoreB - scoreA;
+    }
     return (b.upvote_count - b.downvote_count) - (a.upvote_count - a.downvote_count);
   });
 
   return (
     <div className="max-w-3xl mx-auto">
+      <ReadingProgressBar />
+      <BackToTopButton />
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
         <button onClick={() => setView({ name: "home", feed: "trending" })} className="hover:text-foreground">Home</button>
         <span>/</span>
@@ -329,7 +338,7 @@ export function PostDetailPage({ postId }: { postId: string }) {
           <span className="text-sm font-semibold">{formatNumber(post.comment_count)} comments</span>
           <div className="flex-1" />
           <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted/40">
-            {(["top", "new"] as const).map((s) => (
+            {(["top", "new", "controversial"] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setSort(s)}
@@ -440,7 +449,7 @@ function CommentItem({ comment, postId, depth, onReload }: { comment: Comment; p
     });
     try {
       if (newValue === 0) {
-        const { supabase } = await import("@/lib/data");
+        // Use the supabase client imported at top of file from @/lib/auth
         await supabase!.from("comment_votes").delete().match({ comment_id: comment.id, user_id: profile.id });
       } else {
         await voteOnComment(comment.id, profile.id, value);
@@ -467,7 +476,7 @@ function CommentItem({ comment, postId, depth, onReload }: { comment: Comment; p
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      className={`glass-card rounded-2xl p-4 ${depth > 0 ? "ml-4 lg:ml-6" : ""}`}
+      className="glass-card rounded-2xl p-4"
       style={{ marginLeft: depth > 0 ? `${Math.min(depth, 4) * 16}px` : 0 }}
     >
       <div className="flex items-start gap-3">

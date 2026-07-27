@@ -1,0 +1,619 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useUIStore } from "@/lib/ui-store";
+     5→import { useAuth, supabase } from "@/lib/auth";
+     6→import { fetchPost, fetchComments, addComment, updateComment, deleteComment, voteOnComment, toggleBookmark, voteOnPost, removeVoteOnPost, deletePost, updatePost, type Post, type Comment } from "@/lib/data";
+     7→import ReactMarkdown from "react-markdown";
+     8→import remarkGfm from "remark-gfm";
+     9→import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+    10→import { Button } from "@/components/ui/button";
+    11→import { Textarea } from "@/components/ui/textarea";
+    12→import { ArrowBigUp, ArrowBigDown, Bookmark, Share2, Eye, Trash2, Edit, Flag, Reply, MoreHorizontal } from "lucide-react";
+    13→import { motion, AnimatePresence } from "framer-motion";
+    14→import { timeAgo, formatDate, formatNumber } from "@/lib/helpers";
+    15→import { toast } from "sonner";
+    16→import {
+    17→  DropdownMenu,
+    18→  DropdownMenuContent,
+    19→  DropdownMenuItem,
+    20→  DropdownMenuSeparator,
+    21→  DropdownMenuTrigger,
+    22→} from "@/components/ui/dropdown-menu";
+    23→import {
+    24→  AlertDialog,
+    25→  AlertDialogAction,
+    26→  AlertDialogCancel,
+    27→  AlertDialogContent,
+    28→  AlertDialogDescription,
+    29→  AlertDialogFooter,
+    30→  AlertDialogHeader,
+    31→  AlertDialogTitle,
+    32→  AlertDialogTrigger,
+    33→} from "@/components/ui/alert-dialog";
+    34→import { ReadingProgressBar, BackToTopButton } from "@/components/shared/reading-progress";
+    35→
+    36→export function PostDetailPage({ postId }: { postId: string }) {
+    37→  const setView = useUIStore((s) => s.setView);
+    38→  const { profile } = useAuth();
+    39→  const [post, setPost] = React.useState<Post | null>(null);
+    40→  const [comments, setComments] = React.useState<Comment[]>([]);
+    41→  const [loading, setLoading] = React.useState(true);
+    42→  const [newComment, setNewComment] = React.useState("");
+    43→  const [sort, setSort] = React.useState<"top" | "new" | "controversial">("top");
+    44→
+    45→  const loadPost = React.useCallback(async () => {
+    46→    const p = await fetchPost(postId, profile?.id);
+    47→    setPost(p);
+    48→    setLoading(false);
+    49→  }, [postId, profile?.id]);
+    50→
+    51→  const loadComments = React.useCallback(async () => {
+    52→    const c = await fetchComments(postId, profile?.id);
+    53→    setComments(c);
+    54→  }, [postId, profile?.id]);
+    55→
+    56→  React.useEffect(() => {
+    57→    let mounted = true;
+    58→    setLoading(true);
+    59→    (async () => {
+    60→      await loadPost();
+    61→      await loadComments();
+    62→      if (!mounted) return;
+    63→    })();
+    64→    return () => { mounted = false; };
+    65→  }, [loadPost, loadComments]);
+    66→
+    67→  if (loading) {
+    68→    return (
+    69→      <div className="max-w-3xl mx-auto space-y-4">
+    70→        <div className="glass-card rounded-3xl h-64 animate-pulse" />
+    71→        <div className="glass-card rounded-2xl h-32 animate-pulse" />
+    72→      </div>
+    73→    );
+    74→  }
+    75→
+    76→  if (!post) {
+    77→    return (
+    78→      <div className="max-w-3xl mx-auto text-center py-20">
+    79→        <h2 className="text-xl font-semibold mb-2">Post not found</h2>
+    80→        <p className="text-sm text-muted-foreground mb-4">It may have been deleted.</p>
+    81→        <Button onClick={() => setView({ name: "home", feed: "trending" })}>Back to home</Button>
+    82→      </div>
+    83→    );
+    84→  }
+    85→
+    86→  if (post.removed) {
+    87→    return (
+    88→      <div className="max-w-3xl mx-auto text-center py-20">
+    89→        <h2 className="text-xl font-semibold mb-2">Post removed</h2>
+    90→        <p className="text-sm text-muted-foreground mb-1">This post was removed by moderators.</p>
+    91→        {post.removed_reason && <p className="text-xs text-muted-foreground italic mb-4">Reason: {post.removed_reason}</p>}
+    92→        <Button onClick={() => setView({ name: "home", feed: "trending" })}>Back to home</Button>
+    93→      </div>
+    94→    );
+    95→  }
+    96→
+    97→  const author = post.author;
+    98→  const topics = post.topics ?? [];
+    99→  const score = post.upvote_count - post.downvote_count;
+   100→  const hasUpvoted = post.my_vote === 1;
+   101→  const hasDownvoted = post.my_vote === -1;
+   102→  const hasBookmarked = !!post.is_bookmarked;
+   103→  const isAuthor = profile?.id === post.author_id;
+   104→
+   105→  const handleVote = async (value: 1 | -1) => {
+   106→    if (!profile) { toast.error("Sign in to vote"); return; }
+   107→    const prev = post;
+   108→    const newValue = prev.my_vote === value ? 0 : value;
+   109→    setPost({
+   110→      ...prev,
+   111→      my_vote: newValue as 1 | -1 | 0,
+   112→      upvote_count: prev.upvote_count + (newValue === 1 ? 1 : prev.my_vote === 1 ? -1 : 0),
+   113→      downvote_count: prev.downvote_count + (newValue === -1 ? 1 : prev.my_vote === -1 ? -1 : 0),
+   114→    });
+   115→    try {
+   116→      if (newValue === 0) await removeVoteOnPost(post.id, profile.id);
+   117→      else await voteOnPost(post.id, profile.id, value);
+   118→    } catch (e) {
+   119→      console.error(e);
+   120→      setPost(prev);
+   121→    }
+   122→  };
+   123→
+   124→  const handleBookmark = async () => {
+   125→    if (!profile) { toast.error("Sign in to bookmark"); return; }
+   126→    setPost({ ...post, is_bookmarked: !post.is_bookmarked });
+   127→    try {
+   128→      await toggleBookmark(post.id, profile.id);
+   129→    } catch (e) {
+   130→      console.error(e);
+   131→      setPost(post);
+   132→    }
+   133→  };
+   134→
+   135→  const handleShare = () => {
+   136→    if (typeof navigator !== "undefined" && navigator.clipboard) {
+   137→      navigator.clipboard.writeText(`Nexus post: "${post.title}"`).catch(() => {});
+   138→    }
+   139→    toast.success("Link copied");
+   140→  };
+   141→
+   142→  const submitComment = async () => {
+   143→    if (!newComment.trim() || !profile) return;
+   144→    const id = await addComment({ postId: post.id, parentId: null, content: newComment.trim() }, profile.id);
+   145→    if (id) {
+   146→      setNewComment("");
+   147→      toast.success("Comment posted");
+   148→      await loadComments();
+   149→      await loadPost();
+   150→    }
+   151→  };
+   152→
+   153→  const sortedComments = [...comments].sort((a, b) => {
+   154→    if (sort === "new") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+   155→    if (sort === "controversial") {
+   156→      // Controversial = lots of votes on both sides (close ratio + high volume)
+   157→      const scoreA = Math.min(a.upvote_count, a.downvote_count) * (a.upvote_count + a.downvote_count);
+   158→      const scoreB = Math.min(b.upvote_count, b.downvote_count) * (b.upvote_count + b.downvote_count);
+   159→      return scoreB - scoreA;
+   160→    }
+   161→    return (b.upvote_count - b.downvote_count) - (a.upvote_count - a.downvote_count);
+   162→  });
+   163→
+   164→  return (
+   165→    <div className="max-w-3xl mx-auto">
+   166→      <ReadingProgressBar />
+   167→      <BackToTopButton />
+   168→      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
+   169→        <button onClick={() => setView({ name: "home", feed: "trending" })} className="hover:text-foreground">Home</button>
+   170→        <span>/</span>
+   171→        {topics[0] && (
+   172→          <button onClick={() => setView({ name: "topic", topicId: topics[0].id })} className="hover:text-foreground inline-flex items-center gap-1">
+   173→            <span>{topics[0].icon}</span> {topics[0].name}
+   174→          </button>
+   175→        )}
+   176→      </div>
+   177→
+   178→      <article className="glass-card rounded-3xl overflow-hidden mb-6">
+   179→        <div className="p-5 lg:p-6 pb-3">
+   180→          <div className="flex items-center gap-3">
+   181→            <button onClick={() => author && setView({ name: "profile", userId: author.id, tab: "posts" })}>
+   182→              <Avatar className="w-11 h-11 ring-2 ring-border/50">
+   183→                {author?.avatar_url ? <AvatarImage src={author.avatar_url} alt={author?.name} /> : null}
+   184→                <AvatarFallback>{author?.name?.[0]?.toUpperCase() ?? "?"}</AvatarFallback>
+   185→              </Avatar>
+   186→            </button>
+   187→            <div className="min-w-0 flex-1">
+   188→              <button onClick={() => author && setView({ name: "profile", userId: author.id, tab: "posts" })} className="text-left">
+   189→                <div className="font-semibold leading-tight hover:text-primary transition-colors">{author?.name ?? "Unknown"}</div>
+   190→                <div className="text-xs text-muted-foreground leading-tight">
+   191→                  @{author?.username ?? "unknown"} · {formatDate(post.created_at)}
+   192→                  {post.updated_at && <span className="italic"> · edited</span>}
+   193→                </div>
+   194→              </button>
+   195→            </div>
+   196→            <div className="flex items-center gap-1">
+   197→              {author && profile && profile.id !== author.id && (
+   198→                <FollowButton userId={author.id} />
+   199→              )}
+   200→              <DropdownMenu>
+   201→                <DropdownMenuTrigger asChild>
+   202→                  <Button variant="ghost" size="icon" className="rounded-lg">
+   203→                    <MoreHorizontal className="w-4 h-4" />
+   204→                  </Button>
+   205→                </DropdownMenuTrigger>
+   206→                <DropdownMenuContent align="end">
+   207→                  <DropdownMenuItem onClick={handleShare}><Share2 className="w-4 h-4 mr-2" /> Share</DropdownMenuItem>
+   208→                  <DropdownMenuItem onSelect={async () => {
+   209→                    const reason = window.prompt("Report reason");
+   210→                    if (reason && profile && supabase) {
+   211→                      await supabase.from("reports").insert({ reporter_id: profile.id, target_type: "post", target_id: post.id, reason });
+   212→                      toast.success("Reported");
+   213→                    }
+   214→                  }}>
+   215→                    <Flag className="w-4 h-4 mr-2" /> Report
+   216→                  </DropdownMenuItem>
+   217→                  {isAuthor && (
+   218→                    <>
+   219→                      <DropdownMenuSeparator />
+   220→                      <DropdownMenuItem onClick={() => setView({ name: "editor", postId: post.id })}>
+   221→                        <Edit className="w-4 h-4 mr-2" /> Edit
+   222→                      </DropdownMenuItem>
+   223→                      <AlertDialog>
+   224→                        <AlertDialogTrigger asChild>
+   225→                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+   226→                            <Trash2 className="w-4 h-4 mr-2" /> Delete
+   227→                          </DropdownMenuItem>
+   228→                        </AlertDialogTrigger>
+   229→                        <AlertDialogContent>
+   230→                          <AlertDialogHeader>
+   231→                            <AlertDialogTitle>Delete this post?</AlertDialogTitle>
+   232→                            <AlertDialogDescription>This will permanently remove the post and all comments.</AlertDialogDescription>
+   233→                          </AlertDialogHeader>
+   234→                          <AlertDialogFooter>
+   235→                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   236→                            <AlertDialogAction
+   237→                              onClick={async () => {
+   238→                                await deletePost(post.id);
+   239→                                toast.success("Post deleted");
+   240→                                setView({ name: "home", feed: "trending" });
+   241→                              }}
+   242→                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   243→                            >Delete</AlertDialogAction>
+   244→                          </AlertDialogFooter>
+   245→                        </AlertDialogContent>
+   246→                      </AlertDialog>
+   247→                    </>
+   248→                  )}
+   249→                </DropdownMenuContent>
+   250→              </DropdownMenu>
+   251→            </div>
+   252→          </div>
+   253→        </div>
+   254→
+   255→        <div className="px-5 lg:px-6 pb-3">
+   256→          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight leading-tight">{post.title}</h1>
+   257→        </div>
+   258→
+   259→        <div className="px-5 lg:px-6 pb-3 flex flex-wrap items-center gap-2">
+   260→          {topics.map((t) => (
+   261→            <button
+   262→              key={t.id}
+   263→              onClick={() => setView({ name: "topic", topicId: t.id })}
+   264→              className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md hover:bg-accent transition-colors"
+   265→              style={{ color: t.color }}
+   266→            >
+   267→              <span>{t.icon}</span>
+   268→              {t.name}
+   269→            </button>
+   270→          ))}
+   271→          {post.tags.map((tag) => (
+   272→            <span key={tag} className="text-xs px-2 py-1 rounded-md bg-muted/60 text-muted-foreground">#{tag}</span>
+   273→          ))}
+   274→        </div>
+   275→
+   276→        <div className="px-5 lg:px-6 pb-6 prose-nexus">
+   277→          <ReactMarkdown remarkPlugins={[remarkGfm]}>{post.content}</ReactMarkdown>
+   278→        </div>
+   279→
+   280→        {post.images.length > 0 && (
+   281→          <div className="px-5 lg:px-6 pb-6 space-y-3">
+   282→            {post.images.map((img, i) => (
+   283→              <img key={i} src={img.url} alt={img.alt ?? ""} className="w-full rounded-xl" />
+   284→            ))}
+   285→          </div>
+   286→        )}
+   287→
+   288→        <div className="flex items-center gap-1 px-3 py-2 border-t border-border/40">
+   289→          <div className="inline-flex items-center gap-0.5 p-0.5 rounded-xl bg-muted/40">
+   290→            <button onClick={() => handleVote(1)} className={`p-1.5 rounded-lg hover:bg-accent transition-colors ${hasUpvoted ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+   291→              <ArrowBigUp className={`w-4 h-4 ${hasUpvoted ? "fill-current" : ""}`} />
+   292→            </button>
+   293→            <span className={`text-xs font-semibold min-w-[24px] text-center ${hasUpvoted ? "text-primary" : hasDownvoted ? "text-destructive" : "text-foreground"}`}>{formatNumber(score)}</span>
+   294→            <button onClick={() => handleVote(-1)} className={`p-1.5 rounded-lg hover:bg-accent transition-colors ${hasDownvoted ? "text-destructive" : "text-muted-foreground hover:text-foreground"}`}>
+   295→              <ArrowBigDown className={`w-4 h-4 ${hasDownvoted ? "fill-current" : ""}`} />
+   296→            </button>
+   297→          </div>
+   298→          <span className="text-xs text-muted-foreground px-2 inline-flex items-center gap-1">
+   299→            <Eye className="w-3.5 h-3.5" /> {formatNumber(post.views)} views
+   300→          </span>
+   301→          <div className="flex-1" />
+   302→          <Button variant="ghost" size="icon" onClick={handleBookmark} className={`rounded-lg ${hasBookmarked ? "text-primary" : ""}`}>
+   303→            <Bookmark className={`w-4 h-4 ${hasBookmarked ? "fill-current" : ""}`} />
+   304→          </Button>
+   305→          <Button variant="ghost" size="icon" onClick={handleShare} className="rounded-lg">
+   306→            <Share2 className="w-4 h-4" />
+   307→          </Button>
+   308→        </div>
+   309→      </article>
+   310→
+   311→      <div className="space-y-4">
+   312→        <div className="glass-card rounded-2xl p-4">
+   313→          <div className="flex items-start gap-3">
+   314→            <Avatar className="w-9 h-9 shrink-0">
+   315→              {profile?.avatar_url ? <AvatarImage src={profile.avatar_url} alt={profile.name} /> : null}
+   316→              <AvatarFallback>{profile?.name?.[0]?.toUpperCase() ?? "U"}</AvatarFallback>
+   317→            </Avatar>
+   318→            <div className="flex-1">
+   319→              <Textarea
+   320→                value={newComment}
+   321→                onChange={(e) => setNewComment(e.target.value)}
+   322→                placeholder={profile ? "Add to the discussion…" : "Sign in to comment"}
+   323→                rows={3}
+   324→                className="rounded-xl resize-none bg-muted/40"
+   325→                disabled={!profile}
+   326→              />
+   327→              <div className="flex items-center justify-between mt-2">
+   328→                <span className="text-xs text-muted-foreground">Tip: use @username to mention people</span>
+   329→                <Button onClick={submitComment} disabled={!newComment.trim() || !profile} size="sm" className="rounded-lg">
+   330→                  <Reply className="w-3.5 h-3.5 mr-1" /> Comment
+   331→                </Button>
+   332→              </div>
+   333→            </div>
+   334→          </div>
+   335→        </div>
+   336→
+   337→        <div className="flex items-center gap-2">
+   338→          <span className="text-sm font-semibold">{formatNumber(post.comment_count)} comments</span>
+   339→          <div className="flex-1" />
+   340→          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted/40">
+   341→            {(["top", "new", "controversial"] as const).map((s) => (
+   342→              <button
+   343→                key={s}
+   344→                onClick={() => setSort(s)}
+   345→                className={`px-3 py-1 rounded-md text-xs font-medium capitalize transition-colors ${
+   346→                  sort === s ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground"
+   347→                }`}
+   348→              >
+   349→                {s}
+   350→              </button>
+   351→            ))}
+   352→          </div>
+   353→        </div>
+   354→
+   355→        {sortedComments.length === 0 ? (
+   356→          <div className="glass-card rounded-2xl p-10 text-center">
+   357→            <p className="text-sm text-muted-foreground mb-2">No comments yet.</p>
+   358→            <p className="text-xs text-muted-foreground">Be the first to start the discussion.</p>
+   359→          </div>
+   360→        ) : (
+   361→          <div className="space-y-3">
+   362→            <AnimatePresence>
+   363→              {sortedComments.map((c) => (
+   364→                <CommentItem
+   365→                  key={c.id}
+   366→                  comment={c}
+   367→                  postId={post.id}
+   368→                  depth={0}
+   369→                  onReload={async () => { await loadComments(); await loadPost(); }}
+   370→                />
+   371→              ))}
+   372→            </AnimatePresence>
+   373→          </div>
+   374→        )}
+   375→      </div>
+   376→    </div>
+   377→  );
+   378→}
+   379→
+   380→function FollowButton({ userId }: { userId: string }) {
+   381→  const { profile } = useAuth();
+   382→  const [following, setFollowing] = React.useState(false);
+   383→
+   384→  React.useEffect(() => {
+   385→    if (!profile || !supabase) return;
+   386→    let mounted = true;
+   387→    (async () => {
+   388→      const { data } = await supabase!
+   389→        .from("user_followers")
+   390→        .select("follower_id")
+   391→        .eq("follower_id", profile.id)
+   392→        .eq("followee_id", userId)
+   393→        .maybeSingle();
+   394→      if (mounted) setFollowing(!!data);
+   395→    })();
+   396→    return () => { mounted = false; };
+   397→  }, [profile, userId]);
+   398→
+   399→  if (!profile || profile.id === userId) return null;
+   400→
+   401→  return (
+   402→    <Button
+   403→      variant={following ? "secondary" : "outline"}
+   404→      size="sm"
+   405→      className="rounded-lg text-xs"
+   406→      onClick={async () => {
+   407→        const { followUser, unfollowUser } = await import("@/lib/data");
+   408→        if (following) {
+   409→          await unfollowUser(profile.id, userId);
+   410→          setFollowing(false);
+   411→          toast.success("Unfollowed");
+   412→        } else {
+   413→          await followUser(profile.id, userId);
+   414→          setFollowing(true);
+   415→          toast.success("Following");
+   416→        }
+   417→      }}
+   418→    >
+   419→      {following ? "Following" : "Follow"}
+   420→    </Button>
+   421→  );
+   422→}
+   423→
+   424→function CommentItem({ comment, postId, depth, onReload }: { comment: Comment; postId: string; depth: number; onReload: () => Promise<void> }) {
+   425→  const { profile } = useAuth();
+   426→  const [localComment, setLocalComment] = React.useState(comment);
+   427→  const [replyOpen, setReplyOpen] = React.useState(false);
+   428→  const [editOpen, setEditOpen] = React.useState(false);
+   429→  const [replyText, setReplyText] = React.useState("");
+   430→  const [editText, setEditText] = React.useState(comment.content);
+   431→
+   432→  React.useEffect(() => setLocalComment(comment), [comment]);
+   433→
+   434→  const author = localComment.author;
+   435→  const hasUpvoted = localComment.my_vote === 1;
+   436→  const hasDownvoted = localComment.my_vote === -1;
+   437→  const score = localComment.upvote_count - localComment.downvote_count;
+   438→  const isAuthor = profile?.id === localComment.author_id;
+   439→
+   440→  const handleVote = async (value: 1 | -1) => {
+   441→    if (!profile) { toast.error("Sign in to vote"); return; }
+   442→    const prev = localComment;
+   443→    const newValue = prev.my_vote === value ? 0 : value;
+   444→    setLocalComment({
+   445→      ...prev,
+   446→      my_vote: newValue as 1 | -1 | 0,
+   447→      upvote_count: prev.upvote_count + (newValue === 1 ? 1 : prev.my_vote === 1 ? -1 : 0),
+   448→      downvote_count: prev.downvote_count + (newValue === -1 ? 1 : prev.my_vote === -1 ? -1 : 0),
+   449→    });
+   450→    try {
+   451→      if (newValue === 0) {
+   452→        const { supabase } = await import("@/lib/data");
+   453→        await supabase!.from("comment_votes").delete().match({ comment_id: comment.id, user_id: profile.id });
+   454→      } else {
+   455→        await voteOnComment(comment.id, profile.id, value);
+   456→      }
+   457→    } catch (e) {
+   458→      console.error(e);
+   459→      setLocalComment(prev);
+   460→    }
+   461→  };
+   462→
+   463→  const submitReply = async () => {
+   464→    if (!replyText.trim() || !profile) return;
+   465→    const id = await addComment({ postId, parentId: comment.id, content: replyText.trim() }, profile.id);
+   466→    if (id) {
+   467→      setReplyText("");
+   468→      setReplyOpen(false);
+   469→      toast.success("Reply added");
+   470→      await onReload();
+   471→    }
+   472→  };
+   473→
+   474→  return (
+   475→    <motion.div
+   476→      initial={{ opacity: 0, y: 4 }}
+   477→      animate={{ opacity: 1, y: 0 }}
+   478→      exit={{ opacity: 0 }}
+   479→      className={`glass-card rounded-2xl p-4 ${depth > 0 ? "ml-4 lg:ml-6" : ""}`}
+   480→      style={{ marginLeft: depth > 0 ? `${Math.min(depth, 4) * 16}px` : 0 }}
+   481→    >
+   482→      <div className="flex items-start gap-3">
+   483→        <Avatar className="w-8 h-8">
+   484→          {author?.avatar_url ? <AvatarImage src={author.avatar_url} alt={author?.name} /> : null}
+   485→          <AvatarFallback>{author?.name?.[0]?.toUpperCase() ?? "?"}</AvatarFallback>
+   486→        </Avatar>
+   487→        <div className="flex-1 min-w-0">
+   488→          <div className="flex items-center gap-2 mb-1">
+   489→            <button
+   490→              onClick={() => author && useUIStore.getState().setView({ name: "profile", userId: author.id, tab: "posts" })}
+   491→              className="font-medium text-sm hover:text-primary transition-colors"
+   492→            >
+   493→              {author?.name ?? "Unknown"}
+   494→            </button>
+   495→            <span className="text-xs text-muted-foreground">@{author?.username ?? "unknown"}</span>
+   496→            <span className="text-xs text-muted-foreground">·</span>
+   497→            <span className="text-xs text-muted-foreground">{timeAgo(localComment.created_at)}</span>
+   498→            {localComment.updated_at && <span className="text-xs text-muted-foreground italic">· edited</span>}
+   499→          </div>
+   500→
+   501→          {editOpen ? (
+   502→            <div className="space-y-2">
+   503→              <Textarea
+   504→                value={editText}
+   505→                onChange={(e) => setEditText(e.target.value)}
+   506→                rows={3}
+   507→                className="rounded-lg resize-none bg-muted/40"
+   508→              />
+   509→              <div className="flex gap-2">
+   510→                <Button size="sm" onClick={async () => { await updateComment(comment.id, editText); setEditOpen(false); toast.success("Edited"); }}>Save</Button>
+   511→                <Button size="sm" variant="ghost" onClick={() => { setEditOpen(false); setEditText(localComment.content); }}>Cancel</Button>
+   512→              </div>
+   513→            </div>
+   514→          ) : (
+   515→            <div className="text-sm leading-relaxed prose-nexus">
+   516→              <ReactMarkdown remarkPlugins={[remarkGfm]}>{localComment.content}</ReactMarkdown>
+   517→            </div>
+   518→          )}
+   519→
+   520→          <div className="flex items-center gap-1 mt-2">
+   521→            <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-muted/40">
+   522→              <button onClick={() => handleVote(1)} className={`p-1 rounded hover:bg-accent transition-colors ${hasUpvoted ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+   523→                <ArrowBigUp className={`w-3.5 h-3.5 ${hasUpvoted ? "fill-current" : ""}`} />
+   524→              </button>
+   525→              <span className={`text-xs font-semibold min-w-[20px] text-center ${hasUpvoted ? "text-primary" : hasDownvoted ? "text-destructive" : "text-foreground"}`}>{score}</span>
+   526→              <button onClick={() => handleVote(-1)} className={`p-1 rounded hover:bg-accent transition-colors ${hasDownvoted ? "text-destructive" : "text-muted-foreground hover:text-foreground"}`}>
+   527→                <ArrowBigDown className={`w-3.5 h-3.5 ${hasDownvoted ? "fill-current" : ""}`} />
+   528→              </button>
+   529→            </div>
+   530→            <Button variant="ghost" size="sm" onClick={() => setReplyOpen((v) => !v)} className="h-7 px-2 text-xs gap-1">
+   531→              <Reply className="w-3 h-3" /> Reply
+   532→            </Button>
+   533→            <DropdownMenu>
+   534→              <DropdownMenuTrigger asChild>
+   535→                <Button variant="ghost" size="icon" className="h-7 w-7">
+   536→                  <MoreHorizontal className="w-3 h-3" />
+   537→                </Button>
+   538→              </DropdownMenuTrigger>
+   539→              <DropdownMenuContent align="end">
+   540→                {isAuthor && (
+   541→                  <DropdownMenuItem onClick={() => setEditOpen(true)}>
+   542→                    <Edit className="w-3.5 h-3.5 mr-2" /> Edit
+   543→                  </DropdownMenuItem>
+   544→                )}
+   545→                <DropdownMenuItem onSelect={async () => {
+   546→                  const reason = window.prompt("Report reason");
+   547→                  if (reason && profile && supabase) {
+   548→                    await supabase.from("reports").insert({ reporter_id: profile.id, target_type: "comment", target_id: comment.id, reason });
+   549→                    toast.success("Reported");
+   550→                  }
+   551→                }}>
+   552→                  <Flag className="w-3.5 h-3.5 mr-2" /> Report
+   553→                </DropdownMenuItem>
+   554→                {isAuthor && (
+   555→                  <>
+   556→                    <DropdownMenuSeparator />
+   557→                    <AlertDialog>
+   558→                      <AlertDialogTrigger asChild>
+   559→                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+   560→                          <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+   561→                        </DropdownMenuItem>
+   562→                      </AlertDialogTrigger>
+   563→                      <AlertDialogContent>
+   564→                        <AlertDialogHeader>
+   565→                          <AlertDialogTitle>Delete this comment?</AlertDialogTitle>
+   566→                          <AlertDialogDescription>This will remove the comment and all replies.</AlertDialogDescription>
+   567→                        </AlertDialogHeader>
+   568→                        <AlertDialogFooter>
+   569→                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+   570→                          <AlertDialogAction
+   571→                            onClick={async () => {
+   572→                              await deleteComment(comment.id);
+   573→                              toast.success("Deleted");
+   574→                              await onReload();
+   575→                            }}
+   576→                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   577→                          >Delete</AlertDialogAction>
+   578→                        </AlertDialogFooter>
+   579→                      </AlertDialogContent>
+   580→                    </AlertDialog>
+   581→                  </>
+   582→                )}
+   583→              </DropdownMenuContent>
+   584→            </DropdownMenu>
+   585→          </div>
+   586→
+   587→          {replyOpen && (
+   588→            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-3">
+   589→              <Textarea
+   590→                value={replyText}
+   591→                onChange={(e) => setReplyText(e.target.value)}
+   592→                placeholder={`Reply to @${author?.username ?? "user"}…`}
+   593→                rows={2}
+   594→                className="rounded-lg resize-none bg-muted/40 text-sm"
+   595→                autoFocus
+   596→              />
+   597→              <div className="flex gap-2 mt-2">
+   598→                <Button size="sm" onClick={submitReply} disabled={!replyText.trim()}>Reply</Button>
+   599→                <Button size="sm" variant="ghost" onClick={() => setReplyOpen(false)}>Cancel</Button>
+   600→              </div>
+   601→            </motion.div>
+   602→          )}
+   603→
+   604→          {localComment.children && localComment.children.length > 0 && (
+   605→            <div className="mt-3 space-y-2 border-l-2 border-border/40 pl-3">
+   606→              {localComment.children.map((child) => (
+   607→                <CommentItem key={child.id} comment={child} postId={postId} depth={depth + 1} onReload={onReload} />
+   608→              ))}
+   609→            </div>
+   610→          )}
+   611→        </div>
+   612→      </div>
+   613→    </motion.div>
+   614→  );
+   615→}
+   616→
+   617→// Avoid unused import warning
+   618→void updatePost;
+   619→

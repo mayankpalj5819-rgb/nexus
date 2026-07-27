@@ -12,12 +12,15 @@ import { Plus, Users, TrendingUp, ChevronRight, Check, Bell, BellOff } from "luc
 import { formatNumber, timeAgo } from "@/lib/helpers";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { TopicPresence } from "@/components/features/topics/topic-presence";
+import { useTopicTheme } from "@/lib/use-topic-theme";
 import type { Profile } from "@/lib/data";
 
 export function TopicDetailPage({ topicId }: { topicId: string }) {
   const setView = useUIStore((s) => s.setView);
   const { profile } = useAuth();
   const [topic, setTopic] = React.useState<Topic | null>(null);
+  useTopicTheme(topic?.color);
   const [followerCount, setFollowerCount] = React.useState(0);
   const [following, setFollowing] = React.useState(false);
   const [sort, setSort] = React.useState<"trending" | "latest" | "popular">("trending");
@@ -167,6 +170,9 @@ export function TopicDetailPage({ topicId }: { topicId: string }) {
             <span className="inline-flex items-center gap-1">
               <TrendingUp className="w-3.5 h-3.5" /> {topic.post_count} posts
             </span>
+          </div>
+          <div className="mt-3">
+            <TopicPresence topicId={topic.id} />
           </div>
         </div>
       </div>

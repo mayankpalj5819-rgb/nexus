@@ -29,7 +29,8 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
     const t = setTimeout(() => {
       setDebounced(query);
       if (query.trim()) {
-        addRecentSearch(query.trim());
+        // Don't add to recent searches on every keystroke — only on explicit
+        // submit (Enter) or result click, which is handled elsewhere.
         setHasSearched(true);
         setLoading(true);
       } else {
@@ -38,7 +39,7 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [query, addRecentSearch]);
+  }, [query]);
 
   React.useEffect(() => {
     if (!debounced.trim()) return;
@@ -60,6 +61,11 @@ export function SearchPage({ initialQuery, initialFilter }: { initialQuery?: str
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && query.trim()) {
+              addRecentSearch(query.trim());
+            }
+          }}
           placeholder="Search posts, topics, people…"
           className="pl-10 pr-10 h-12 rounded-2xl glass text-base"
           autoFocus

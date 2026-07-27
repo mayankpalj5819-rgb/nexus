@@ -3,6 +3,9 @@
 import { supabase } from "@/lib/auth";
 import type { Profile } from "@/lib/auth";
 
+// Re-export Profile so consumers can import it from either module
+export type { Profile } from "@/lib/auth";
+
 // ============================================================================
 // Types — mirror our public schema
 // ============================================================================
@@ -150,7 +153,23 @@ export async function isFollowingTopic(topicId: string, userId: string): Promise
 // Posts
 // ============================================================================
 
-export type FeedSort = "trending" | "latest" | "popular";
+export type FeedSort = "trending" | "latest" | "popular" | "week" | "following";
+
+// Standard post select with all aggregates + topic join
+const POST_SELECT_FULL = `
+  id, author_id, title, preview, content, images, tags, views,
+  removed, removed_reason, created_at, updated_at,
+  upvote_count:post_votes!post_votes_post_id_fkey(count),
+  downvote_count:post_votes!post_votes_post_id_fkey(count),
+  comment_count:comments!comments_post_id_fkey(count),
+  post_topics(topic_id)
+`;
+
+// Lighter select for search/random (no aggregate joins — counts fetched in transformPosts)
+const POST_SELECT_LIGHT = `
+  id, author_id, title, preview, content, images, tags, views,
+  removed, removed_reason, created_at, updated_at
+`;
 
 interface FetchPostsOptions {
   sort?: FeedSort;
@@ -177,12 +196,15 @@ export async function fetchPosts(opts: FetchPostsOptions = {}): Promise<Post[]> 
 
   // Joins via post_topics
   if (topicId) {
-    // Use a sub-filter — Supabase JS supports filtering on related tables
+    // Topic-scoped query — keep all aggregates, use inner join on post_topics
     query = supabase
       .from("posts")
       .select(`
         id, author_id, title, preview, content, images, tags, views,
         removed, removed_reason, created_at, updated_at,
+        upvote_count:post_votes!post_votes_post_id_fkey(count),
+        downvote_count:post_votes!post_votes_post_id_fkey(count),
+        comment_count:comments!comments_post_id_fkey(count),
         post_topics!inner(topic_id)
       `)
       .eq("post_topics.topic_id", topicId);
@@ -199,6 +221,24 @@ export async function fetchPosts(opts: FetchPostsOptions = {}): Promise<Post[]> 
   if (sort === "week") {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     postsQuery = postsQuery.gte("created_at", weekAgo);
+  }
+
+  // For "following" filter, restrict to posts in topics the user follows
+  if (sort === "following" && currentUserId) {
+    const { data: followed } = await supabase
+      .from("topic_followers")
+      .select("topic_id")
+      .eq("user_id", currentUserId);
+    const followedTopicIds = (followed ?? []).map((r: { topic_id: string }) => r.topic_id);
+    if (followedTopicIds.length === 0) return [];
+    // Get post IDs that match any followed topic
+    const { data: postTopics } = await supabase
+      .from("post_topics")
+      .select("post_id")
+      .in("topic_id", followedTopicIds);
+    const postIds = [...new Set((postTopics ?? []).map((r: { post_id: string }) => r.post_id))];
+    if (postIds.length === 0) return [];
+    postsQuery = postsQuery.in("id", postIds);
   }
 
   if (sort === "latest") {
@@ -224,7 +264,7 @@ export async function fetchPosts(opts: FetchPostsOptions = {}): Promise<Post[]> 
     const { data: bookmarkData } = await supabase
       .from("bookmarks")
       .select("post_id")
-      .eq("user_id", bookmarkBy);
+      .eq("user_id", bookmarkedBy);
     const bookmarkedIds = (bookmarkData ?? []).map((b: { post_id: string }) => b.post_id);
     const filtered = (data ?? []).filter((p: { id: string }) => bookmarkedIds.includes(p.id));
     return transformPosts(filtered, sort, limit, currentUserId);
@@ -337,18 +377,17 @@ async function transformPosts(
 
 export async function fetchPost(postId: string, currentUserId?: string): Promise<Post | null> {
   if (!supabase) return null;
+  // Use the full select so we get vote counts, comment count, and topic_ids
   const { data, error } = await supabase
     .from("posts")
-    .select("*")
+    .select(POST_SELECT_FULL)
     .eq("id", postId)
     .maybeSingle();
   if (error || !data) return null;
-  // Increment view count (best-effort)
-  await supabase.rpc("increment_post_views", { post_id: postId }).catch(() => {});
-  // Use fetchPosts to get the fully transformed post
-  const posts = await fetchPosts({ sort: "latest", limit: 1, currentUserId });
-  // Actually we need to fetch by ID — let me do it manually
-  return transformPosts([data], "latest", 1, currentUserId).then((arr) => arr[0] ?? null);
+  // Increment view count (best-effort, fire-and-forget)
+  try { await supabase.rpc("increment_post_views", { post_id: postId }); } catch {}
+  const posts = await transformPosts([data], "latest", 1, currentUserId);
+  return posts[0] ?? null;
 }
 
 export async function createPost(
@@ -425,7 +464,7 @@ export async function fetchRandomPost(currentUserId?: string): Promise<Post | nu
   const offset = Math.floor(Math.random() * count);
   const { data } = await supabase
     .from("posts")
-    .select("id, author_id, title, preview, content, images, tags, views, removed, removed_reason, created_at, updated_at")
+    .select(POST_SELECT_FULL)
     .eq("removed", false)
     .range(offset, offset);
   if (!data || data.length === 0) return null;
@@ -755,7 +794,7 @@ export async function searchAll(
     filter === "all" || filter === "posts"
       ? supabase
           .from("posts")
-          .select("id, author_id, title, preview, content, images, tags, views, removed, removed_reason, created_at, updated_at")
+          .select(POST_SELECT_FULL)
           .or(`title.ilike.%${q}%,preview.ilike.%${q}%`)
           .eq("removed", false)
           .order("created_at", { ascending: false })

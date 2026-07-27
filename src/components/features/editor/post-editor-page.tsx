@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { fetchTopics, createPost, updatePost, fetchPost, type Topic } from "@/lib/data";
 import { wordCount, readingTime } from "@/lib/helpers";
+import { PostTemplatePicker, MarkdownCheatSheet } from "@/components/features/editor/editor-extras";
 
 export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?: string }) {
   const editorRef = React.useRef<NexusEditorHandle>(null);
@@ -25,7 +26,7 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
   const [selectedTopics, setSelectedTopics] = React.useState<string[]>([]);
   const [tags, setTags] = React.useState("");
   const [mode, setMode] = React.useState<"write" | "preview">("write");
-  const [loading, setLoading] = React.useState(!!postId);
+  const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     let mounted = true;
@@ -40,7 +41,15 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
           setContent(p.content);
           setSelectedTopics(p.topic_ids);
           setTags(p.tags.join(", "));
-          setTimeout(() => editorRef.current?.setMarkdown(p.content), 100);
+          // Poll for editor readiness — more reliable than a fixed setTimeout
+          const trySet = (attempts = 0) => {
+            if (editorRef.current) {
+              editorRef.current.setMarkdown(p.content);
+            } else if (attempts < 20) {
+              setTimeout(() => trySet(attempts + 1), 50);
+            }
+          };
+          trySet();
         }
         setLoading(false);
       } else if (topicId) {
@@ -110,12 +119,24 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
         </Button>
       </div>
 
-      <Input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="A clear, specific title"
-        className="h-14 text-lg lg:text-xl font-semibold rounded-2xl mb-4 glass"
-      />
+      <div className="flex items-center gap-2 mb-4">
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="A clear, specific title"
+          className="h-14 text-lg lg:text-xl font-semibold rounded-2xl glass flex-1"
+        />
+        {!postId && (
+          <PostTemplatePicker
+            onSelect={(t) => {
+              setTitle(t.title);
+              setContent(t.content);
+              editorRef.current?.setMarkdown(t.content);
+              toast.success("Template loaded");
+            }}
+          />
+        )}
+      </div>
 
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
@@ -162,11 +183,14 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
       </div>
 
       <Tabs value={mode} onValueChange={(v) => setMode(v as "write" | "preview")}>
-        <div className="flex items-center justify-between mb-2">
-          <TabsList>
-            <TabsTrigger value="write">Write</TabsTrigger>
-            <TabsTrigger value="preview">Preview</TabsTrigger>
-          </TabsList>
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <TabsList>
+              <TabsTrigger value="write">Write</TabsTrigger>
+              <TabsTrigger value="preview">Preview</TabsTrigger>
+            </TabsList>
+            {mode === "write" && <MarkdownCheatSheet />}
+          </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <FileText className="w-3 h-3" />

@@ -32,7 +32,7 @@ export function NexusCommandPalette({
   React.useEffect(() => {
     let mounted = true;
     (async () => {
-      const { fetchTopics, fetchPosts, supabase } = await import("@/lib/data");
+      const { fetchTopics, fetchPosts } = await import("@/lib/data");
       const [t, p] = await Promise.all([
         fetchTopics(),
         fetchPosts({ sort: "latest", limit: 6 }),
@@ -41,6 +41,8 @@ export function NexusCommandPalette({
         setTopics(t.slice(0, 8));
         setPosts(p);
       }
+      // Fetch users via the supabase client from @/lib/auth (already imported at top)
+      const { supabase } = await import("@/lib/auth");
       if (supabase) {
         const { data: u } = await supabase.from("users").select("*").limit(5);
         if (mounted) setUsers((u ?? []) as Profile[]);

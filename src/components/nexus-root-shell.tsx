@@ -7,6 +7,7 @@ import { NexusCommandPalette } from "@/components/layout/command-palette";
 import { NexusMobileNav } from "@/components/layout/mobile-nav";
 import { NexusViewRouter } from "@/components/layout/view-router";
 import { KeyboardShortcutsOverlay } from "@/components/layout/keyboard-shortcuts";
+import { OnboardingFlow } from "@/components/features/onboarding/onboarding-flow";
 import { useUIStore } from "@/lib/ui-store";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -113,6 +114,7 @@ export function NexusRootShell() {
       <NexusMobileNav onOpenCmd={() => setCmdOpen(true)} />
       <NexusCommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
       <KeyboardShortcutsOverlay open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <OnboardingFlow />
 
       {/* Floating "?" button for keyboard shortcuts — bottom right, hidden on mobile */}
       <button

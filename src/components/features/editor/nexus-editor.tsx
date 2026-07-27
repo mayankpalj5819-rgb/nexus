@@ -25,10 +25,34 @@ import {
   Minus,
 } from "lucide-react";
 import { createLowlight } from "lowlight";
+import javascript from "highlight.js/lib/languages/javascript";
+import typescript from "highlight.js/lib/languages/typescript";
+import python from "highlight.js/lib/languages/python";
+import bash from "highlight.js/lib/languages/bash";
+import json from "highlight.js/lib/languages/json";
+import sql from "highlight.js/lib/languages/sql";
+import xml from "highlight.js/lib/languages/xml";
+import css from "highlight.js/lib/languages/css";
+import markdown from "highlight.js/lib/languages/markdown";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const lowlight = createLowlight();
+lowlight.register("javascript", javascript);
+lowlight.register("js", javascript);
+lowlight.register("typescript", typescript);
+lowlight.register("ts", typescript);
+lowlight.register("python", python);
+lowlight.register("py", python);
+lowlight.register("bash", bash);
+lowlight.register("sh", bash);
+lowlight.register("json", json);
+lowlight.register("sql", sql);
+lowlight.register("xml", xml);
+lowlight.register("html", xml);
+lowlight.register("css", css);
+lowlight.register("markdown", markdown);
+lowlight.register("md", markdown);
 
 const ToolbarButton = ({
   icon,
