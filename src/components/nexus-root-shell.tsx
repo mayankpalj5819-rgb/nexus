@@ -6,11 +6,13 @@ import { NexusTopbar } from "@/components/layout/topbar";
 import { NexusCommandPalette } from "@/components/layout/command-palette";
 import { NexusMobileNav } from "@/components/layout/mobile-nav";
 import { NexusViewRouter } from "@/components/layout/view-router";
+import { KeyboardShortcutsOverlay } from "@/components/layout/keyboard-shortcuts";
 import { useUIStore } from "@/lib/ui-store";
 import { motion, AnimatePresence } from "framer-motion";
 
 export function NexusRootShell() {
   const [cmdOpen, setCmdOpen] = React.useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const view = useUIStore((s) => s.view);
 
   // Cmd/Ctrl + K command palette
@@ -37,6 +39,54 @@ export function NexusRootShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [view.name]);
 
+  // ? → shortcuts overlay; g+letter → quick navigation
+  React.useEffect(() => {
+    let gPressed = false;
+    let gTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+
+      // ? for shortcuts (works everywhere except input fields)
+      if (e.key === "?" && !isTyping) {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
+
+      // g + letter for navigation
+      if (isTyping) return;
+      if (e.key.toLowerCase() === "g" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        gPressed = true;
+        if (gTimer) clearTimeout(gTimer);
+        gTimer = setTimeout(() => { gPressed = false; }, 700);
+        return;
+      }
+      if (gPressed) {
+        const key = e.key.toLowerCase();
+        const map: Record<string, () => void> = {
+          h: () => useUIStore.getState().setView({ name: "home", feed: "trending" }),
+          t: () => useUIStore.getState().setView({ name: "topics" }),
+          s: () => useUIStore.getState().setView({ name: "search" }),
+          n: () => useUIStore.getState().setView({ name: "notifications" }),
+          b: () => useUIStore.getState().setView({ name: "bookmarks" }),
+          p: () => useUIStore.getState().setView({ name: "profile", tab: "posts" }),
+        };
+        if (map[key]) {
+          e.preventDefault();
+          map[key]();
+        }
+        gPressed = false;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (gTimer) clearTimeout(gTimer);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-background aurora-bg">
       <div className="mx-auto max-w-[1600px] flex">
@@ -62,6 +112,17 @@ export function NexusRootShell() {
       </div>
       <NexusMobileNav onOpenCmd={() => setCmdOpen(true)} />
       <NexusCommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
+      <KeyboardShortcutsOverlay open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+
+      {/* Floating "?" button for keyboard shortcuts — bottom right, hidden on mobile */}
+      <button
+        onClick={() => setShortcutsOpen(true)}
+        className="hidden lg:flex fixed bottom-6 right-6 z-20 w-10 h-10 items-center justify-center rounded-full glass-strong border border-border/50 shadow-soft hover:scale-110 transition-transform text-muted-foreground hover:text-foreground"
+        aria-label="Keyboard shortcuts"
+        title="Keyboard shortcuts (press ?)"
+      >
+        <span className="text-sm font-bold">?</span>
+      </button>
     </div>
   );
 }

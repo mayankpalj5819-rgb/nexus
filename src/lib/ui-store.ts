@@ -15,7 +15,7 @@ export type View =
   | { name: "topics" }
   | { name: "settings" };
 
-export type FeedTab = "trending" | "latest" | "popular" | "following";
+export type FeedTab = "trending" | "latest" | "popular" | "following" | "week";
 export type SearchFilter = "all" | "posts" | "topics" | "users";
 export type ProfileTab = "posts" | "comments" | "bookmarks" | "following" | "followers" | "activity";
 export type AdminTab = "dashboard" | "users" | "posts" | "topics" | "reports" | "analytics" | "roles";

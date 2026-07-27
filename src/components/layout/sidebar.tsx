@@ -16,6 +16,7 @@ import {
   Shield,
   Settings,
   LogOut,
+  Shuffle,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -89,7 +90,7 @@ export function NexusSidebar() {
 
       <Button
         onClick={() => setView({ name: "editor" })}
-        className="mb-4 rounded-xl h-11 gap-2 shadow-glow"
+        className="mb-2 rounded-xl h-11 gap-2 shadow-glow"
         size="lg"
       >
         <Plus className="w-4 h-4" />
@@ -97,6 +98,21 @@ export function NexusSidebar() {
         <kbd className="ml-1 hidden xl:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-background/20 border border-foreground/20">
           ⌘↵
         </kbd>
+      </Button>
+
+      <Button
+        variant="outline"
+        onClick={async () => {
+          const { fetchRandomPost } = await import("@/lib/data");
+          const p = await fetchRandomPost(profile?.id);
+          if (p) setView({ name: "post", postId: p.id });
+          else toast.info("No posts to shuffle yet — be the first to write one!");
+        }}
+        className="mb-4 rounded-xl h-9 gap-2 text-xs"
+        size="sm"
+      >
+        <Shuffle className="w-3.5 h-3.5" />
+        I&apos;m feeling lucky
       </Button>
 
       <nav className="flex flex-col gap-0.5">

@@ -6,9 +6,9 @@ import { useAuth, supabase } from "@/lib/auth";
 import type { Post, Profile, Topic } from "@/lib/data";
 import { toggleBookmark, voteOnPost, removeVoteOnPost, deletePost } from "@/lib/data";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowBigUp, ArrowBigDown, MessageSquare, Bookmark, Share2, MoreHorizontal, Flag, Trash2, Eye } from "lucide-react";
+import { ArrowBigUp, ArrowBigDown, MessageSquare, Bookmark, Share2, MoreHorizontal, Flag, Trash2, Eye, Clock } from "lucide-react";
 import { motion } from "framer-motion";
-import { timeAgo, formatNumber } from "@/lib/helpers";
+import { timeAgo, formatNumber, readingTime } from "@/lib/helpers";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -234,6 +234,17 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
             {localPost.preview}
           </p>
         )}
+
+        {/* Reading time + tags meta */}
+        <div className="flex items-center gap-3 mb-2 text-[11px] text-muted-foreground/80">
+          <span className="inline-flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            {readingTime(localPost.content)} min read
+          </span>
+          {localPost.tags.length > 0 && (
+            <span className="opacity-60">·</span>
+          )}
+        </div>
 
         {localPost.images.length > 0 && (
           <div className="grid grid-cols-2 gap-2 mb-3">

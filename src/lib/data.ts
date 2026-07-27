@@ -195,13 +195,19 @@ export async function fetchPosts(opts: FetchPostsOptions = {}): Promise<Post[]> 
 
   let postsQuery = query.eq("removed", false);
 
+  // For "week" filter, restrict to last 7 days
+  if (sort === "week") {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    postsQuery = postsQuery.gte("created_at", weekAgo);
+  }
+
   if (sort === "latest") {
     postsQuery = postsQuery.order("created_at", { ascending: false });
   } else if (sort === "popular") {
     // Popular = most upvotes — we'll sort client-side after fetching counts
     postsQuery = postsQuery.order("created_at", { ascending: false }).limit(limit * 3);
   } else {
-    // trending — fetch recent, sort client-side
+    // trending, week — fetch recent, sort client-side
     postsQuery = postsQuery.order("created_at", { ascending: false }).limit(limit * 3);
   }
 
@@ -312,11 +318,11 @@ async function transformPosts(
     };
   });
 
-  // Sort trending/popular
+  // Sort trending/popular/week
   const day = 24 * 60 * 60 * 1000;
   if (sort === "popular") {
     posts.sort((a, b) => (b.upvote_count - b.downvote_count) - (a.upvote_count - a.downvote_count));
-  } else if (sort === "trending") {
+  } else if (sort === "trending" || sort === "week") {
     posts.sort((a, b) => {
       const ageA = (Date.now() - new Date(a.created_at).getTime()) / day;
       const ageB = (Date.now() - new Date(b.created_at).getTime()) / day;
@@ -407,6 +413,24 @@ export async function updatePost(
 export async function deletePost(postId: string): Promise<void> {
   if (!supabase) return;
   await supabase.from("posts").delete().eq("id", postId);
+}
+
+export async function fetchRandomPost(currentUserId?: string): Promise<Post | null> {
+  if (!supabase) return null;
+  const { count } = await supabase
+    .from("posts")
+    .select("id", { count: "exact", head: true })
+    .eq("removed", false);
+  if (!count || count === 0) return null;
+  const offset = Math.floor(Math.random() * count);
+  const { data } = await supabase
+    .from("posts")
+    .select("id, author_id, title, preview, content, images, tags, views, removed, removed_reason, created_at, updated_at")
+    .eq("removed", false)
+    .range(offset, offset);
+  if (!data || data.length === 0) return null;
+  const posts = await transformPosts(data, "latest", 1, currentUserId);
+  return posts[0] ?? null;
 }
 
 // ============================================================================

@@ -7,12 +7,13 @@ import { NexusEditor, type NexusEditorHandle } from "@/components/features/edito
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Save, Send, X, Check } from "lucide-react";
+import { Save, Send, X, Check, Clock, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { fetchTopics, createPost, updatePost, fetchPost, type Topic } from "@/lib/data";
+import { wordCount, readingTime } from "@/lib/helpers";
 
 export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?: string }) {
   const editorRef = React.useRef<NexusEditorHandle>(null);
@@ -166,6 +167,16 @@ export function PostEditorPage({ postId, topicId }: { postId?: string; topicId?:
             <TabsTrigger value="write">Write</TabsTrigger>
             <TabsTrigger value="preview">Preview</TabsTrigger>
           </TabsList>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <FileText className="w-3 h-3" />
+              {wordCount(content).toLocaleString()} words
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {readingTime(content)} min read
+            </span>
+          </div>
         </div>
         <TabsContent value="write" className="mt-0">
           <NexusEditor ref={editorRef} initialContent={content} onChange={(md) => setContent(md)} />

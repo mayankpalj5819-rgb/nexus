@@ -48,3 +48,13 @@ export function pluralize(n: number, noun: string, plural?: string): string {
   if (n === 1) return `${n} ${noun}`;
   return `${n} ${plural ?? noun + "s"}`;
 }
+
+export function readingTime(content: string): number {
+  // 200 wpm is the standard reading speed
+  const words = content.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round(words / 200));
+}
+
+export function wordCount(content: string): number {
+  return content.trim().split(/\s+/).filter(Boolean).length;
+}

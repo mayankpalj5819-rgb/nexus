@@ -6,13 +6,14 @@ import { useAuth } from "@/lib/auth";
 import { fetchPosts, type Post } from "@/lib/data";
 import { PostCard } from "@/components/shared/post-card";
 import { motion } from "framer-motion";
-import { Flame, Clock, TrendingUp, UserCheck, Sparkles, ArrowRight } from "lucide-react";
+import { Flame, Clock, TrendingUp, UserCheck, Sparkles, ArrowRight, Shuffle, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 
 const TABS: { id: FeedTab; label: string; icon: React.ComponentType<{ className?: string }>; description: string }[] = [
   { id: "trending", label: "Trending", icon: Flame, description: "Hot posts across all topics right now" },
+  { id: "week", label: "Best of Week", icon: CalendarDays, description: "Top posts from the last 7 days" },
   { id: "latest", label: "Latest", icon: Clock, description: "Fresh off the press" },
   { id: "popular", label: "Popular", icon: TrendingUp, description: "All-time most upvoted" },
   { id: "following", label: "Following", icon: UserCheck, description: "From topics you follow" },
