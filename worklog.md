@@ -134,3 +134,54 @@ Stage Summary:
 - ✅ GitHub repo: github.com/mayankpalj5819-rgb/nexus (clean single-commit history, no secrets exposed)
 - ✅ Full end-to-end flow now possible: user clicks "Continue with Google" on production → Google OAuth → Supabase auth.users row created → handle_new_user trigger fires → public.users row created → app loads with real database-backed session
 - Note: The deployed Next.js app currently runs on Zustand mock data (seeded in-memory). Switching it to read/write from Supabase requires a small code refactor to wire up supabase-js calls in the store mutations. The database is ready and waiting — the app just needs to use it. This is a Phase 1.5 task that can be done in a follow-up.
+
+---
+Task ID: nexus-real-supabase
+Agent: main (Super Z)
+Task: Remove all fake/mock data from Nexus, wire up real Supabase auth + database, polish UI further.
+
+Work Log:
+- Deleted src/lib/store.ts (the 1,400-line Zustand store with 12 seeded users, 18 topics, 8 posts, 4 comments, 5 notifications — all fake)
+- Deleted src/lib/use-signed-in-user.ts (no longer needed)
+- Deleted src/lib/supabase.ts (consolidated into auth.tsx)
+- Created src/lib/auth.tsx — AuthProvider with real Google OAuth via supabase.auth.signInWithOAuth, session subscription, profile fetch with retry (handles race condition where handle_new_user trigger hasn't fired yet on first signup), fallback manual profile insert, profile update method
+- Created src/lib/data.ts — Real Supabase data layer: fetchTopics, fetchPosts (with sort options: trending/latest/popular, filter by topic/author/bookmarked-by), fetchPost (with view count increment via RPC), createPost, updatePost, deletePost, voteOnPost/removeVoteOnPost, fetchComments (with nested tree builder), addComment, updateComment, deleteComment, voteOnComment, toggleBookmark, fetchBookmarkFolders, createBookmarkFolder, deleteBookmarkFolder, followUser/unfollowUser/isFollowingUser, fetchUserProfile, fetchUserStats, fetchNotifications, markNotificationRead, markAllNotificationsRead, searchAll (instant search across posts/topics/users)
+- Added increment_post_views() Postgres function via Supabase Management API + granted execute to anon/authenticated roles
+- Created src/lib/ui-store.ts — Minimal Zustand store for UI-only state (view, view history, recent searches) — no mock data
+- Created src/components/shared/nexus-logo.tsx — Extracted reusable logo with proper useId
+- Rewrote src/components/nexus-app.tsx — Uses useAuth() instead of old store, shows real loading state, real auth gate
+- Rewrote src/components/features/auth/auth-screen.tsx — Real Google OAuth (signInWithGoogle from useAuth), removed 8 fake seeded user buttons, added 3 value props on the right (Follow topics not people / No algorithmic noise / Built for thinking)
+- Rewrote src/components/nexus-root-shell.tsx — Uses UI store, fetches real trending posts + topics for right rail
+- Rewrote src/components/layout/sidebar.tsx — Real followed topics from Supabase, real unread notification count
+- Rewrote src/components/layout/topbar.tsx — Real notification count from Supabase
+- Rewrote src/components/layout/mobile-nav.tsx — Uses UI store
+- Rewrote src/components/layout/command-palette.tsx — Real search across Supabase data
+- Rewrote src/components/features/feed/home-page.tsx — Real posts from Supabase with proper empty states ("No trending posts yet", "Your following feed is empty", etc.)
+- Rewrote src/components/shared/post-card.tsx — Real optimistic voting/bookmarking against Supabase, real author data from joined query, real report submission to reports table
+- Rewrote src/components/features/topics/topics-explorer.tsx — Real topics from Supabase with real follower counts
+- Rewrote src/components/features/topics/topic-detail.tsx — Real topic + posts + top contributors + related topics, all from Supabase
+- Rewrote src/components/features/posts/post-detail.tsx — Real post + nested comments with real voting, replying, editing, deleting, mentioning — all against Supabase
+- Rewrote src/components/features/search/search-page.tsx — Real instant search with debounced queries against Supabase
+- Rewrote src/components/features/profile/profile-page.tsx — Real profile + stats + tabs (posts/comments/bookmarks/following/followers/activity) all from Supabase
+- Rewrote src/components/features/notifications/notifications-page.tsx — Real notifications from Supabase with real mark-read/mark-all-read
+- Rewrote src/components/features/bookmarks/bookmarks-page.tsx — Real bookmarks + folders from Supabase
+- Rewrote src/components/features/editor/post-editor-page.tsx — Real post creation/update against Supabase, real topic picker from DB
+- Rewrote src/components/features/admin/admin-panel.tsx — Real dashboard counts from Supabase, real user ban/unban, real topic list, real reports management
+- Rewrote src/components/features/profile/settings-page.tsx — Real profile updates via updateProfile
+- Updated src/app/layout.tsx — Wraps app in AuthProvider
+- Updated src/components/layout/view-router.tsx — Uses UI store
+- Updated eslint config to ignore scripts/ folder (deploy scripts use CommonJS require)
+- Fixed markRead → markNotificationRead typo
+- Lint passes clean
+- Committed and pushed to GitHub (commit e1bc5de)
+- Render auto-deployed (build_in_progress → update_in_progress → live in ~2 minutes)
+- Verified production at https://nexus-ydrq.onrender.com returns HTTP 200 with new auth screen rendering correctly
+
+Stage Summary:
+- ZERO mock data remaining in the app
+- Real Google OAuth flow (clicking "Continue with Google" redirects to Google, returns to /auth/callback, creates auth.users row, fires handle_new_user trigger, creates public.users row, app loads with real session)
+- All reads/writes go through Supabase with RLS policies enforced
+- Optimistic UI updates everywhere (votes, bookmarks, comments) — instant feedback, rolls back on error
+- All empty states use real "no data yet" messaging instead of fake seeded content
+- New users see a genuinely empty home feed until they create posts or follow topics with posts
+- Production live at https://nexus-ydrq.onrender.com with the new clean auth screen
