@@ -10,6 +10,7 @@ import { KeyboardShortcutsOverlay } from "@/components/layout/keyboard-shortcuts
 import { OnboardingFlow } from "@/components/features/onboarding/onboarding-flow";
 import { SuggestedWidget } from "@/components/features/feed/suggested-widget";
 import { RecentlyViewed } from "@/components/features/feed/recently-viewed";
+import { ReadingList } from "@/components/features/feed/reading-list";
 import { useUIStore } from "@/lib/ui-store";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -211,6 +212,9 @@ function NexusRightRail() {
 
       {/* Suggested topics + people to follow */}
       <SuggestedWidget />
+
+      {/* Reading list */}
+      <ReadingList />
 
       {/* Recently viewed posts */}
       <RecentlyViewed />

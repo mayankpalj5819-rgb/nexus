@@ -10,6 +10,7 @@ import { Flame, Clock, TrendingUp, UserCheck, Sparkles, ArrowRight, Shuffle, Cal
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { TrendingTopicsBar } from "@/components/features/topics/trending-topics-bar";
 
 const TABS: { id: FeedTab; label: string; icon: React.ComponentType<{ className?: string }>; description: string }[] = [
   { id: "trending", label: "Trending", icon: Flame, description: "Hot posts across all topics right now" },
@@ -95,6 +96,11 @@ export function HomePage() {
           </div>
         </motion.div>
       )}
+
+      {/* Trending topics bar */}
+      <div className="mb-4">
+        <TrendingTopicsBar />
+      </div>
 
       <div className="sticky top-16 z-10 -mx-4 lg:-mx-8 px-4 lg:px-8 py-3 glass-strong border-b border-border/40 mb-4">
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">

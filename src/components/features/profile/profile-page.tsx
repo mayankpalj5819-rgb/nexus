@@ -14,6 +14,7 @@ import { formatNumber, formatDate, timeAgo } from "@/lib/helpers";
 import { toast } from "sonner";
 import { EditProfileModal } from "@/components/features/profile/edit-profile-modal";
 import { UserBadges } from "@/components/features/profile/user-badges";
+import { PostAnalytics } from "@/components/features/profile/post-analytics";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Post, Comment, Topic } from "@/lib/data";
@@ -333,6 +334,7 @@ function ProfileTabs({ userId, initialTab, isSelf }: { userId: string; initialTa
         <TabsTrigger value="following">Following ({followingUsers.length})</TabsTrigger>
         <TabsTrigger value="followers">Followers ({followers.length})</TabsTrigger>
         <TabsTrigger value="activity">Activity</TabsTrigger>
+        {isSelf && <TabsTrigger value="analytics">Analytics</TabsTrigger>}
       </TabsList>
 
       <TabsContent value="posts" className="space-y-4 mt-0">
@@ -431,6 +433,12 @@ function ProfileTabs({ userId, initialTab, isSelf }: { userId: string; initialTa
       <TabsContent value="activity" className="mt-0">
         <ActivityFeed userId={userId} posts={posts} comments={comments} />
       </TabsContent>
+
+      {isSelf && (
+        <TabsContent value="analytics" className="mt-0">
+          <PostAnalytics userId={userId} />
+        </TabsContent>
+      )}
     </Tabs>
   );
 }

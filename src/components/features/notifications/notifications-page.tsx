@@ -7,6 +7,7 @@ import { fetchNotifications, markNotificationRead, markAllNotificationsRead, typ
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Heart, MessageSquare, AtSign, UserPlus, Bell, Check, CheckCheck, Info } from "lucide-react";
+import { NotificationPreferences } from "@/components/features/notifications/notification-preferences";
 import { motion } from "framer-motion";
 import { timeAgo } from "@/lib/helpers";
 import { toast } from "sonner";
@@ -134,6 +135,11 @@ export function NotificationsPage() {
           })}
         </div>
       )}
+
+      {/* Notification preferences */}
+      <div className="mt-8">
+        <NotificationPreferences />
+      </div>
     </div>
   );
 }

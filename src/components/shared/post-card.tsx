@@ -30,6 +30,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { PostReactions } from "@/components/shared/post-reactions";
+import { RealtimeCommentBadge } from "@/components/features/posts/realtime-comment-badge";
+import { addToReadingList } from "@/components/features/feed/reading-list";
+import { BookOpen } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
@@ -192,6 +195,18 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleShare}>
                 <Share2 className="w-4 h-4 mr-2" /> Share
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => {
+                addToReadingList({
+                  id: localPost.id,
+                  title: localPost.title,
+                  topicName: localPost.topics?.[0]?.name,
+                  topicIcon: localPost.topics?.[0]?.icon,
+                  content: localPost.content,
+                });
+                toast.success("Added to reading list");
+              }}>
+                <BookOpen className="w-4 h-4 mr-2" /> Save to reading list
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setReportOpen(true)}>
                 <Flag className="w-4 h-4 mr-2" /> Report
