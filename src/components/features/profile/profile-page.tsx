@@ -15,6 +15,8 @@ import { toast } from "sonner";
 import { EditProfileModal } from "@/components/features/profile/edit-profile-modal";
 import { UserBadges } from "@/components/features/profile/user-badges";
 import { PostAnalytics } from "@/components/features/profile/post-analytics";
+import { StreakTracker } from "@/components/features/profile/streak-tracker";
+import { BlockManager } from "@/components/features/profile/block-manager";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Post, Comment, Topic } from "@/lib/data";
@@ -192,6 +194,13 @@ export function ProfilePage({ userId, initialTab }: { userId?: string; initialTa
         <UserBadges profile={user} postCount={stats.postCount} followerCount={stats.followers} />
       </div>
 
+      {/* Streak tracker (only for self) */}
+      {isSelf && (
+        <div className="mb-4">
+          <StreakTracker userId={user.id} />
+        </div>
+      )}
+
       {/* Profile completion banner for self */}
       {isSelf && !user.bio && !user.website && (
         <div className="mb-4 glass-card rounded-2xl p-4 flex items-center gap-3 border border-primary/20">
@@ -233,6 +242,13 @@ export function ProfilePage({ userId, initialTab }: { userId?: string; initialTa
 
       {/* Edit profile modal */}
       <EditProfileModal open={editOpen} onOpenChange={setEditOpen} />
+
+      {/* Block manager (only for self) */}
+      {isSelf && (
+        <div className="mt-8">
+          <BlockManager userId={user.id} />
+        </div>
+      )}
     </div>
   );
 }

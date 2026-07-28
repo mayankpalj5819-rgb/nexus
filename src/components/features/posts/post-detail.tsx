@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowBigUp, ArrowBigDown, Bookmark, Share2, Eye, Trash2, Edit, Flag, Reply, MoreHorizontal } from "lucide-react";
+import { ArrowBigUp, ArrowBigDown, Bookmark, Share2, Eye, Trash2, Edit, Flag, Reply, MoreHorizontal, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { timeAgo, formatDate, formatNumber } from "@/lib/helpers";
 import { toast } from "sonner";
@@ -35,6 +35,8 @@ import { ReadingProgressBar, BackToTopButton } from "@/components/shared/reading
 import { trackViewedPost } from "@/components/features/feed/recently-viewed";
 import { PollWidget } from "@/components/shared/poll-widget";
 import { ShareDialog } from "@/components/shared/share-dialog";
+import { PostTableOfContents } from "@/components/features/posts/post-toc";
+import { EditHistoryDialog } from "@/components/features/posts/edit-history";
 
 export function PostDetailPage({ postId }: { postId: string }) {
   const setView = useUIStore((s) => s.setView);
@@ -44,6 +46,7 @@ export function PostDetailPage({ postId }: { postId: string }) {
   const [loading, setLoading] = React.useState(true);
   const [newComment, setNewComment] = React.useState("");
   const [shareOpen, setShareOpen] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
   const [sort, setSort] = React.useState<"top" | "new" | "controversial">("top");
 
   const loadPost = React.useCallback(async () => {
@@ -215,6 +218,9 @@ export function PostDetailPage({ postId }: { postId: string }) {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={handleShare}><Share2 className="w-4 h-4 mr-2" /> Share</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                    <History className="w-4 h-4 mr-2" /> Edit history
+                  </DropdownMenuItem>
                   <DropdownMenuItem onSelect={async () => {
                     const reason = window.prompt("Report reason");
                     if (reason && profile && supabase) {
@@ -396,6 +402,16 @@ export function PostDetailPage({ postId }: { postId: string }) {
         postTitle={post.title}
         postUrl={typeof window !== "undefined" ? `${window.location.origin}/?post=${post.id}` : undefined}
       />
+
+      {/* Edit history dialog */}
+      <EditHistoryDialog postId={post.id} open={historyOpen} onOpenChange={setHistoryOpen} />
+
+      {/* Table of contents (hidden on mobile, shown on xl screens) */}
+      {post.content && (
+        <div className="hidden xl:block fixed right-8 top-32 w-64 max-h-[70vh] overflow-y-auto no-scrollbar">
+          <PostTableOfContents content={post.content} />
+        </div>
+      )}
     </div>
   );
 }
